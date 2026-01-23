@@ -1,0 +1,20 @@
+{
+  "name": "management-ui",
+  "version": "1.0.0",
+  "description": "Web interface for managing services and DNS",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "body-parser": "^1.20.2",
+    "axios": "^1.6.0",
+    "fs-extra": "^11.1.1",
+    "yaml": "^2.3.2",
+    "express-session": "^1.17.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

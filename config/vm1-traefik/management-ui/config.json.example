@@ -1,0 +1,6 @@
+{
+  "traefikApiUrl": "http://localhost:8080",
+  "dnsConfigPath": "/etc/dns-api/config.json",
+  "traefikDynamicDir": "/etc/traefik/dynamic",
+  "port": 3000
+}

@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление DNS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 15px;
+            margin-top: 10px;
+        }
+        
+        .nav-links a {
+            color: #3498db;
+            text-decoration: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            transition: background 0.3s;
+        }
+        
+        .nav-links a:hover {
+            background: #ecf0f1;
+        }
+        
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover {
+            background: #2980b9;
+        }
+        
+        .btn-danger {
+            background: #e74c3c;
+        }
+        
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        
+        .btn-success {
+            background: #27ae60;
+        }
+        
+        .btn-success:hover {
+            background: #229954;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+        }
+        
+        .modal-content {
+            background: white;
+            margin: 50px auto;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 500px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .close {
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #999;
+        }
+        
+        .close:hover {
+            color: #333;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .search-box {
+            margin-bottom: 20px;
+        }
+        
+        .search-box input {
+            max-width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-top">
+                <div>
+                    <h1>Управление DNS записями</h1>
+                    <p>Создание и управление поддоменами</p>
+                </div>
+                <div>
+                    <span id="username-display" style="margin-right: 15px; color: #7f8c8d;"></span>
+                    <button class="btn" onclick="logout()" style="background: #95a5a6;">Выход</button>
+                </div>
+            </div>
+            <div class="nav-links">
+                <a href="/">Управление сервисами</a>
+                <a href="/dns.html" style="font-weight: bold;">Управление DNS</a>
+            </div>
+        </header>
+        
+        <div id="alert-container"></div>
+        
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>DNS записи</h2>
+                <button class="btn btn-success" onclick="openAddModal()">+ Добавить запись</button>
+            </div>
+            
+            <div class="search-box">
+                <input type="text" id="search-input" placeholder="Поиск по поддомену или IP..." onkeyup="filterRecords()">
+            </div>
+            
+            <table id="records-table">
+                <thead>
+                    <tr>
+                        <th>Поддомен</th>
+                        <th>Полный домен</th>
+                        <th>IP адрес</th>
+                        <th>Тип</th>
+                        <th>Создано</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="records-tbody">
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 20px;">
+                            Загрузка...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- Modal для добавления/редактирования записи -->
+    <div id="recordModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeRecordModal()">&times;</span>
+            <h2 id="modal-title">Добавить DNS запись</h2>
+            <form id="record-form" onsubmit="saveRecord(event)">
+                <div class="form-group">
+                    <label>Поддомен:</label>
+                    <input type="text" id="subdomain" name="subdomain" required placeholder="gitlab">
+                </div>
+                <div class="form-group">
+                    <label>IP адрес:</label>
+                    <input type="text" id="ip" name="ip" required placeholder="192.168.1.100" pattern="^([0-9]{1,3}\.){3}[0-9]{1,3}$">
+                </div>
+                <input type="hidden" id="record-id" name="id">
+                <div style="margin-top: 20px;">
+                    <button type="submit" class="btn btn-success">Сохранить</button>
+                    <button type="button" class="btn" onclick="closeRecordModal()" style="margin-left: 10px;">Отмена</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        let allRecords = [];
+        
+        // Проверка авторизации
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/auth/check');
+                const data = await response.json();
+                
+                if (!data.authenticated) {
+                    window.location.href = '/login';
+                    return false;
+                }
+                
+                if (data.username) {
+                    document.getElementById('username-display').textContent = data.username;
+                }
+                return true;
+            } catch (error) {
+                console.error('Ошибка проверки авторизации:', error);
+                window.location.href = '/login';
+                return false;
+            }
+        }
+        
+        // Выход
+        async function logout() {
+            try {
+                await fetch('/logout', { method: 'POST' });
+                window.location.href = '/login';
+            } catch (error) {
+                console.error('Ошибка выхода:', error);
+                window.location.href = '/login';
+            }
+        }
+        
+        // Загрузка DNS записей
+        async function loadRecords() {
+            try {
+                const response = await fetch('/api/dns/records');
+                const data = await response.json();
+                allRecords = data.records || [];
+                displayRecords(allRecords);
+            } catch (error) {
+                showAlert('Ошибка загрузки записей: ' + error.message, 'error');
+            }
+        }
+        
+        // Отображение записей
+        function displayRecords(records) {
+            const tbody = document.getElementById('records-tbody');
+            
+            if (records.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">Нет записей</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = records.map(record => `
+                <tr>
+                    <td>${record.subdomain}</td>
+                    <td><strong>${record.full_domain}</strong></td>
+                    <td>${record.ip}</td>
+                    <td>${record.type || 'A'}</td>
+                    <td>${new Date(record.created_at).toLocaleString('ru-RU')}</td>
+                    <td>
+                        <button class="btn" onclick="editRecord('${record.id}')" style="margin-right: 5px;">Редактировать</button>
+                        <button class="btn btn-danger" onclick="deleteRecord('${record.id}', '${record.subdomain}')">Удалить</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        // Фильтрация записей
+        function filterRecords() {
+            const search = document.getElementById('search-input').value.toLowerCase();
+            const filtered = allRecords.filter(record => 
+                record.subdomain.toLowerCase().includes(search) ||
+                record.full_domain.toLowerCase().includes(search) ||
+                record.ip.includes(search)
+            );
+            displayRecords(filtered);
+        }
+        
+        // Сохранение записи
+        async function saveRecord(event) {
+            event.preventDefault();
+            
+            const formData = {
+                subdomain: document.getElementById('subdomain').value,
+                ip: document.getElementById('ip').value,
+                id: document.getElementById('record-id').value || null
+            };
+            
+            try {
+                let response;
+                if (formData.id) {
+                    // Обновление
+                    response = await fetch(`/api/dns/records/${formData.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+                } else {
+                    // Создание
+                    response = await fetch('/api/dns/records', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+                }
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert(formData.id ? 'Запись обновлена!' : 'Запись создана!', 'success');
+                    closeRecordModal();
+                    loadRecords();
+                } else {
+                    showAlert('Ошибка: ' + (result.error || 'Неизвестная ошибка'), 'error');
+                }
+            } catch (error) {
+                showAlert('Ошибка: ' + error.message, 'error');
+            }
+        }
+        
+        // Редактирование записи
+        function editRecord(id) {
+            const record = allRecords.find(r => r.id === id);
+            if (!record) return;
+            
+            document.getElementById('modal-title').textContent = 'Редактировать DNS запись';
+            document.getElementById('record-id').value = record.id;
+            document.getElementById('subdomain').value = record.subdomain;
+            document.getElementById('ip').value = record.ip;
+            document.getElementById('subdomain').disabled = true; // Поддомен нельзя менять
+            openRecordModal();
+        }
+        
+        // Удаление записи
+        async function deleteRecord(id, subdomain) {
+            if (!confirm(`Удалить DNS запись для "${subdomain}"?`)) return;
+            
+            try {
+                const response = await fetch(`/api/dns/records/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert('Запись удалена', 'success');
+                    loadRecords();
+                } else {
+                    showAlert('Ошибка: ' + (result.error || 'Неизвестная ошибка'), 'error');
+                }
+            } catch (error) {
+                showAlert('Ошибка: ' + error.message, 'error');
+            }
+        }
+        
+        // Модальное окно
+        function openAddModal() {
+            document.getElementById('modal-title').textContent = 'Добавить DNS запись';
+            document.getElementById('record-form').reset();
+            document.getElementById('record-id').value = '';
+            document.getElementById('subdomain').disabled = false;
+            openRecordModal();
+        }
+        
+        function openRecordModal() {
+            document.getElementById('recordModal').style.display = 'block';
+        }
+        
+        function closeRecordModal() {
+            document.getElementById('recordModal').style.display = 'none';
+            document.getElementById('record-form').reset();
+            document.getElementById('record-id').value = '';
+        }
+        
+        // Показ уведомлений
+        function showAlert(message, type) {
+            const container = document.getElementById('alert-container');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            container.innerHTML = '';
+            container.appendChild(alert);
+            
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        }
+        
+        // Закрытие модального окна при клике вне его
+        window.onclick = function(event) {
+            const modal = document.getElementById('recordModal');
+            if (event.target == modal) {
+                closeRecordModal();
+            }
+        }
+        
+        // Загрузка при старте
+        checkAuth().then(authenticated => {
+            if (authenticated) {
+                loadRecords();
+                setInterval(loadRecords, 30000); // Обновление каждые 30 секунд
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,155 @@
+#!/bin/sh
+# ssh-copy-id - копирование SSH ключа на удаленный сервер
+# Совместимо с Git Bash на Windows
+
+# Определение пути к домашней директории
+if [ -n "$HOME" ]; then
+    HOME_DIR="$HOME"
+elif [ -n "$USERPROFILE" ]; then
+    # Windows Git Bash
+    HOME_DIR=$(echo "$USERPROFILE" | sed 's|\\|/|g')
+else
+    HOME_DIR="$HOME"
+fi
+
+SSH_KEY="${HOME_DIR}/.ssh/id_rsa.pub"
+IDENTITY=""
+REMOTE_USER=""
+REMOTE_HOST=""
+REMOTE_PORT="22"
+SSH_OPTS=""
+
+usage() {
+    cat << EOF
+Использование: ssh-copy-id [-i identity_file] [-p port] [user@]hostname
+
+Опции:
+    -i identity_file   Использовать указанный публичный ключ
+    -p port            Порт SSH (по умолчанию 22)
+    -h                 Показать эту справку
+
+Примеры:
+    ssh-copy-id user@example.com
+    ssh-copy-id -i ~/.ssh/my_key.pub user@example.com
+    ssh-copy-id -p 2222 user@example.com
+EOF
+    exit 1
+}
+
+# Парсинг аргументов
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -i)
+            shift
+            if [ $# -eq 0 ]; then
+                echo "Ошибка: -i требует аргумент"
+                exit 1
+            fi
+            IDENTITY="$1"
+            shift
+            ;;
+        -p)
+            shift
+            if [ $# -eq 0 ]; then
+                echo "Ошибка: -p требует аргумент"
+                exit 1
+            fi
+            REMOTE_PORT="$1"
+            shift
+            ;;
+        -h|--help)
+            usage
+            ;;
+        -*)
+            echo "Неизвестная опция: $1"
+            usage
+            ;;
+        *)
+            if [ -z "$REMOTE_USER" ] && [ -z "$REMOTE_HOST" ]; then
+                # Парсинг user@host
+                if echo "$1" | grep -q '@'; then
+                    REMOTE_USER=$(echo "$1" | cut -d'@' -f1)
+                    REMOTE_HOST=$(echo "$1" | cut -d'@' -f2)
+                else
+                    REMOTE_HOST="$1"
+                fi
+            else
+                echo "Ошибка: Неожиданный аргумент: $1"
+                usage
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Проверка наличия хоста
+if [ -z "$REMOTE_HOST" ]; then
+    echo "Ошибка: Не указан хост"
+    usage
+fi
+
+# Определение ключа для использования
+if [ -n "$IDENTITY" ]; then
+    SSH_KEY="$IDENTITY"
+    # Если указан приватный ключ, используем соответствующий публичный
+    if [ ! -f "$SSH_KEY" ] && [ -f "${SSH_KEY%.pub}" ]; then
+        SSH_KEY="${SSH_KEY%.pub}.pub"
+    fi
+else
+    # Попытка найти ключ по умолчанию
+    if [ ! -f "$SSH_KEY" ]; then
+        # Попробуем другие стандартные ключи
+        for key in "${HOME_DIR}/.ssh/id_ed25519.pub" "${HOME_DIR}/.ssh/id_ecdsa.pub" "${HOME_DIR}/.ssh/id_dsa.pub"; do
+            if [ -f "$key" ]; then
+                SSH_KEY="$key"
+                break
+            fi
+        done
+    fi
+fi
+
+# Проверка наличия ключа
+if [ ! -f "$SSH_KEY" ]; then
+    echo "Ошибка: Публичный ключ не найден: $SSH_KEY"
+    echo ""
+    echo "Создайте SSH ключ:"
+    echo "  ssh-keygen -t rsa -b 4096"
+    echo ""
+    echo "Или укажите ключ явно:"
+    echo "  ssh-copy-id -i ~/.ssh/your_key.pub $REMOTE_USER@$REMOTE_HOST"
+    exit 1
+fi
+
+echo "Используется ключ: $SSH_KEY"
+echo "Копирование на: ${REMOTE_USER:+$REMOTE_USER@}$REMOTE_HOST:$REMOTE_PORT"
+
+# Чтение публичного ключа
+PUBLIC_KEY=$(cat "$SSH_KEY")
+
+# Формирование команды SSH
+SSH_CMD="ssh"
+if [ -n "$REMOTE_PORT" ] && [ "$REMOTE_PORT" != "22" ]; then
+    SSH_CMD="$SSH_CMD -p $REMOTE_PORT"
+fi
+
+# Попытка подключения и добавления ключа
+REMOTE_TARGET="${REMOTE_USER:+$REMOTE_USER@}$REMOTE_HOST"
+
+# Создание директории .ssh если её нет и добавление ключа
+$SSH_CMD "$REMOTE_TARGET" "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$PUBLIC_KEY' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo 'Ключ успешно добавлен!'" 2>&1
+
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "✓ SSH ключ успешно скопирован на $REMOTE_TARGET"
+    echo ""
+    echo "Теперь вы можете подключаться без пароля:"
+    echo "  ssh $REMOTE_TARGET"
+else
+    echo ""
+    echo "Ошибка: Не удалось скопировать ключ"
+    echo "Проверьте:"
+    echo "  - Доступность сервера"
+    echo "  - Правильность учетных данных"
+    echo "  - Наличие SSH доступа"
+    exit 1
+fi

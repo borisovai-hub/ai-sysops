@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление сервисами</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover {
+            background: #2980b9;
+        }
+        
+        .btn-danger {
+            background: #e74c3c;
+        }
+        
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        
+        .btn-success {
+            background: #27ae60;
+        }
+        
+        .btn-success:hover {
+            background: #229954;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+        }
+        
+        .modal-content {
+            background: white;
+            margin: 50px auto;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 500px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .close {
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #999;
+        }
+        
+        .close:hover {
+            color: #333;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h1>Управление сервисами</h1>
+                    <p>Добавление и управление сервисами через Traefik</p>
+                </div>
+                <div>
+                    <span id="username-display" style="margin-right: 15px; color: #7f8c8d;"></span>
+                    <button class="btn" onclick="logout()" style="background: #95a5a6;">Выход</button>
+                </div>
+            </div>
+        </header>
+        
+        <div id="alert-container"></div>
+        
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>Список сервисов</h2>
+                <button class="btn btn-success" onclick="openAddModal()">+ Добавить сервис</button>
+            </div>
+            
+            <table id="services-table">
+                <thead>
+                    <tr>
+                        <th>Имя</th>
+                        <th>Домен</th>
+                        <th>Внутренний IP</th>
+                        <th>Порт</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="services-tbody">
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 20px;">
+                            Загрузка...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- Modal для добавления сервиса -->
+    <div id="addModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeAddModal()">&times;</span>
+            <h2>Добавить новый сервис</h2>
+            <form id="add-service-form" onsubmit="addService(event)">
+                <div class="form-group">
+                    <label>Имя сервиса:</label>
+                    <input type="text" name="name" required placeholder="app1">
+                </div>
+                <div class="form-group">
+                    <label>Внутренний IP:</label>
+                    <input type="text" name="internalIp" required placeholder="192.168.1.100">
+                </div>
+                <div class="form-group">
+                    <label>Порт:</label>
+                    <input type="number" name="port" required placeholder="8080">
+                </div>
+                <div class="form-group">
+                    <label>Домен (опционально):</label>
+                    <input type="text" name="domain" placeholder="app1.example.com">
+                </div>
+                <div style="margin-top: 20px;">
+                    <button type="submit" class="btn btn-success">Создать</button>
+                    <button type="button" class="btn" onclick="closeAddModal()" style="margin-left: 10px;">Отмена</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        // Загрузка списка сервисов
+        async function loadServices() {
+            try {
+                const response = await fetch('/api/services');
+                const data = await response.json();
+                displayServices(data.services);
+            } catch (error) {
+                showAlert('Ошибка загрузки сервисов: ' + error.message, 'error');
+            }
+        }
+        
+        // Отображение сервисов
+        function displayServices(services) {
+            const tbody = document.getElementById('services-tbody');
+            
+            if (services.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px;">Нет сервисов</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = services.map(service => `
+                <tr>
+                    <td>${service.name}</td>
+                    <td><a href="https://${service.domain}" target="_blank">${service.domain}</a></td>
+                    <td>${service.internalIp}</td>
+                    <td>${service.port}</td>
+                    <td>
+                        <button class="btn btn-danger" onclick="deleteService('${service.name}')">Удалить</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        // Добавление сервиса
+        async function addService(event) {
+            event.preventDefault();
+            const formData = new FormData(event.target);
+            const data = {
+                name: formData.get('name'),
+                internalIp: formData.get('internalIp'),
+                port: formData.get('port'),
+                domain: formData.get('domain') || null
+            };
+            
+            try {
+                const response = await fetch('/api/services', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert('Сервис успешно создан!', 'success');
+                    closeAddModal();
+                    loadServices();
+                } else {
+                    showAlert('Ошибка: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Ошибка: ' + error.message, 'error');
+            }
+        }
+        
+        // Удаление сервиса
+        async function deleteService(name) {
+            if (!confirm(`Удалить сервис "${name}"?`)) return;
+            
+            try {
+                const response = await fetch(`/api/services/${name}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert('Сервис удален', 'success');
+                    loadServices();
+                } else {
+                    showAlert('Ошибка: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Ошибка: ' + error.message, 'error');
+            }
+        }
+        
+        // Модальное окно
+        function openAddModal() {
+            document.getElementById('addModal').style.display = 'block';
+            document.getElementById('add-service-form').reset();
+        }
+        
+        function closeAddModal() {
+            document.getElementById('addModal').style.display = 'none';
+        }
+        
+        // Показ уведомлений
+        function showAlert(message, type) {
+            const container = document.getElementById('alert-container');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            container.innerHTML = '';
+            container.appendChild(alert);
+            
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        }
+        
+        // Закрытие модального окна при клике вне его
+        window.onclick = function(event) {
+            const modal = document.getElementById('addModal');
+            if (event.target == modal) {
+                closeAddModal();
+            }
+        }
+        
+        // Проверка авторизации
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/auth/check');
+                const data = await response.json();
+                
+                if (!data.authenticated) {
+                    window.location.href = '/login';
+                    return false;
+                }
+                
+                if (data.username) {
+                    document.getElementById('username-display').textContent = data.username;
+                }
+                return true;
+            } catch (error) {
+                console.error('Ошибка проверки авторизации:', error);
+                window.location.href = '/login';
+                return false;
+            }
+        }
+        
+        // Выход
+        async function logout() {
+            try {
+                await fetch('/logout', { method: 'POST' });
+                window.location.href = '/login';
+            } catch (error) {
+                console.error('Ошибка выхода:', error);
+                window.location.href = '/login';
+            }
+        }
+        
+        // Загрузка при старте
+        checkAuth().then(authenticated => {
+            if (authenticated) {
+                loadServices();
+                setInterval(loadServices, 30000); // Обновление каждые 30 секунд
+            }
+        });
+    </script>
+</body>
+</html>
