@@ -1,0 +1,2 @@
+# Shell scripts: LF line endings for Linux (avoids $'\r': command not found)
+*.sh text eol=lf

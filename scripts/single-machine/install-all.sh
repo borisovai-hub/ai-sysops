@@ -1,10 +1,12 @@
 #!/bin/bash
 # Главный скрипт установки всех инструментов на одну машину
-# Использование: sudo ./install-all.sh [--continue] [--force]
+# Использование: sudo ./install-all.sh [--continue] [--force] [--ask] [--new-only]
 # 
 # Параметры:
 #   --continue  - продолжить установку с места остановки
 #   --force     - переустановить все компоненты
+#   --ask       - интерактивный режим (спрашивать о переустановке каждого компонента)
+#   --new-only  - установить только новые компоненты (по умолчанию)
 # 
 # Примечание: Скрипт можно запускать из любой директории.
 # Он автоматически определит свое расположение и найдет все необходимые файлы.
@@ -23,20 +25,26 @@ fi
 # Параметры командной строки
 CONTINUE_MODE=false
 FORCE_MODE=false
+INSTALL_MODE="auto"  # По умолчанию: автоматический пропуск установленных
 
 for arg in "$@"; do
     case $arg in
         --continue)
             CONTINUE_MODE=true
-            shift
             ;;
         --force)
             FORCE_MODE=true
-            shift
+            INSTALL_MODE="force"
+            ;;
+        --ask)
+            INSTALL_MODE="ask"
+            ;;
+        --new-only)
+            INSTALL_MODE="auto"
             ;;
         *)
             echo "Неизвестный параметр: $arg"
-            echo "Использование: $0 [--continue] [--force]"
+            echo "Использование: $0 [--continue] [--force] [--ask] [--new-only]"
             exit 1
             ;;
     esac
@@ -58,7 +66,8 @@ echo "  - Traefik (reverse proxy с SSL)"
 echo "  - GitLab CE (Git сервер)"
 echo "  - n8n (автоматизация workflow)"
 echo "  - Веб-интерфейс управления"
-echo "  - DNS API интеграция"
+echo "  - DNS API интеграция (опционально)"
+echo "  - Stalwart Mail Server (опционально)"
 echo ""
 
 # Проверка прав root
@@ -71,17 +80,23 @@ fi
 check_and_ask_reinstall() {
     local service_name="$1"
     local check_command="$2"
+    local install_mode="${3:-auto}"  # По умолчанию auto
     
-    if [ "$FORCE_MODE" = true ]; then
+    if [ "$install_mode" = "force" ] || [ "$FORCE_MODE" = true ]; then
         return 0  # Переустановка принудительно включена
     fi
     
     if eval "$check_command" 2>/dev/null; then
-        echo ""
-        read -p "  Сервис $service_name уже установлен. Переустановить? (y/n): " REINSTALL
-        if [ "$REINSTALL" = "y" ] || [ "$REINSTALL" = "Y" ]; then
-            return 0  # Переустановить
+        if [ "$install_mode" = "ask" ]; then
+            echo ""
+            read -p "  Сервис $service_name уже установлен. Переустановить? (y/n): " REINSTALL
+            if [ "$REINSTALL" = "y" ] || [ "$REINSTALL" = "Y" ]; then
+                return 0  # Переустановить
+            else
+                return 1  # Пропустить
+            fi
         else
+            # Режим auto: автоматически пропускаем
             return 1  # Пропустить
         fi
     fi
@@ -183,6 +198,14 @@ elif [ "$FORCE_MODE" = true ]; then
     echo "Режим: Принудительная переустановка"
     echo "Все компоненты будут переустановлены"
     echo ""
+elif [ "$INSTALL_MODE" = "ask" ]; then
+    echo "Режим: Интерактивный"
+    echo "Будут запрошены подтверждения для уже установленных компонентов"
+    echo ""
+else
+    echo "Режим: Автоматический (только новые компоненты)"
+    echo "Уже установленные компоненты будут пропущены"
+    echo ""
 fi
 
 # Сбор конфигурации
@@ -235,6 +258,17 @@ if [ "$SETUP_DNS_CHOICE" = "y" ] || [ "$SETUP_DNS_CHOICE" = "Y" ]; then
     fi
 fi
 
+echo ""
+SETUP_MAIL_CHOICE=$(prompt_choice_and_save "setup_mail_choice" "Установить Stalwart Mail Server? (y/n)")
+MAIL_DOMAIN=""
+if [ "$SETUP_MAIL_CHOICE" = "y" ] || [ "$SETUP_MAIL_CHOICE" = "Y" ]; then
+    MAIL_DOMAIN=$(prompt_and_save "mail_domain" "Домен для почты (например, mail.example.com)")
+    if [ -z "$MAIL_DOMAIN" ]; then
+        echo "Ошибка: Домен для почты обязателен"
+        exit 1
+    fi
+fi
+
 # Вывод конфигурации
 echo ""
 echo "=== Конфигурация ==="
@@ -244,6 +278,9 @@ echo "  Веб-интерфейс домен: $UI_DOMAIN"
 echo "  Let's Encrypt email: $LETSENCRYPT_EMAIL"
 if [ -n "$DNS_PROVIDER" ]; then
     echo "  DNS API: будет настроен"
+fi
+if [ -n "$MAIL_DOMAIN" ]; then
+    echo "  Stalwart Mail Server: будет установлен ($MAIL_DOMAIN)"
 fi
 echo ""
 read -p "Продолжить установку? (y/n): " CONFIRM
@@ -263,7 +300,7 @@ EOF
 
 # Обновление системы
 echo ""
-echo "=== [1/9] Обновление системы ==="
+echo "=== [1/10] Обновление системы ==="
 STEP_NAME="system_update"
 if [ "$CONTINUE_MODE" = true ] && is_step_completed "$STEP_NAME"; then
     echo "  [Пропуск] Обновление системы уже выполнено"
@@ -283,7 +320,7 @@ fi
 
 # Установка базовых пакетов
 echo ""
-echo "=== [2/9] Установка базовых пакетов ==="
+echo "=== [2/10] Установка базовых пакетов ==="
 STEP_NAME="base_packages"
 if [ "$CONTINUE_MODE" = true ] && is_step_completed "$STEP_NAME"; then
     echo "  [Пропуск] Базовые пакеты уже установлены"
@@ -302,7 +339,7 @@ fi
 
 # Настройка firewall
 echo ""
-echo "=== [3/9] Настройка firewall ==="
+echo "=== [3/10] Настройка firewall ==="
 STEP_NAME="firewall"
 if [ "$CONTINUE_MODE" = true ] && is_step_completed "$STEP_NAME"; then
     echo "  [Пропуск] Firewall уже настроен"
@@ -326,10 +363,10 @@ fi
 
 # Установка Traefik
 echo ""
-echo "=== [4/9] Установка Traefik ==="
+echo "=== [4/10] Установка Traefik ==="
 STEP_NAME="traefik"
 SERVICE_FORCE_MODE=false
-if check_and_ask_reinstall "Traefik" "is_service_installed traefik.service"; then
+if check_and_ask_reinstall "Traefik" "is_service_installed traefik.service" "$INSTALL_MODE"; then
     SERVICE_FORCE_MODE=true
 fi
 
@@ -355,13 +392,17 @@ else
             exit 1
         fi
     else
-        echo "  [Пропуск] Traefik уже установлен (пользователь отказался от переустановки)"
+        if [ "$INSTALL_MODE" = "ask" ]; then
+            echo "  [Пропуск] Traefik уже установлен (пользователь отказался от переустановки)"
+        else
+            echo "  [Пропуск] Traefik уже установлен"
+        fi
     fi
 fi
 
 # Настройка DNS API (если нужно)
 echo ""
-echo "=== [5/9] Настройка DNS API ==="
+echo "=== [5/10] Настройка DNS API ==="
 STEP_NAME="dns_api"
 if [ -n "$DNS_PROVIDER" ]; then
     if [ "$CONTINUE_MODE" = true ] && is_step_completed "$STEP_NAME" && [ "$FORCE_MODE" != true ]; then
@@ -392,10 +433,10 @@ fi
 
 # Установка GitLab
 echo ""
-echo "=== [6/9] Установка GitLab ==="
+echo "=== [6/10] Установка GitLab ==="
 STEP_NAME="gitlab"
 SERVICE_FORCE_MODE=false
-if check_and_ask_reinstall "GitLab" "is_package_installed gitlab-ce || is_service_installed gitlab-runsvdir"; then
+if check_and_ask_reinstall "GitLab" "is_package_installed gitlab-ce || is_service_installed gitlab-runsvdir" "$INSTALL_MODE"; then
     SERVICE_FORCE_MODE=true
 fi
 
@@ -430,10 +471,10 @@ fi
 
 # Установка n8n
 echo ""
-echo "=== [7/9] Установка n8n ==="
+echo "=== [7/10] Установка n8n ==="
 STEP_NAME="n8n"
 SERVICE_FORCE_MODE=false
-if check_and_ask_reinstall "n8n" "is_service_installed n8n.service"; then
+if check_and_ask_reinstall "n8n" "is_service_installed n8n.service" "$INSTALL_MODE"; then
     SERVICE_FORCE_MODE=true
 fi
 
@@ -459,16 +500,20 @@ else
             exit 1
         fi
     else
-        echo "  [Пропуск] n8n уже установлен (пользователь отказался от переустановки)"
+        if [ "$INSTALL_MODE" = "ask" ]; then
+            echo "  [Пропуск] n8n уже установлен (пользователь отказался от переустановки)"
+        else
+            echo "  [Пропуск] n8n уже установлен"
+        fi
     fi
 fi
 
 # Установка веб-интерфейса
 echo ""
-echo "=== [8/9] Установка веб-интерфейса управления ==="
+echo "=== [8/10] Установка веб-интерфейса управления ==="
 STEP_NAME="management_ui"
 SERVICE_FORCE_MODE=false
-if check_and_ask_reinstall "Management UI" "is_service_installed management-ui.service"; then
+if check_and_ask_reinstall "Management UI" "is_service_installed management-ui.service" "$INSTALL_MODE"; then
     SERVICE_FORCE_MODE=true
 fi
 
@@ -497,13 +542,66 @@ else
             exit 1
         fi
     else
-        echo "  [Пропуск] Веб-интерфейс уже установлен (пользователь отказался от переустановки)"
+        if [ "$INSTALL_MODE" = "ask" ]; then
+            echo "  [Пропуск] Веб-интерфейс уже установлен (пользователь отказался от переустановки)"
+        else
+            echo "  [Пропуск] Веб-интерфейс уже установлен"
+        fi
     fi
+fi
+
+# Установка Stalwart Mail Server (если выбрано)
+echo ""
+echo "=== [9/10] Установка Stalwart Mail Server ==="
+STEP_NAME="stalwart"
+if [ -n "$MAIL_DOMAIN" ]; then
+    SERVICE_FORCE_MODE=false
+    if check_and_ask_reinstall "Stalwart Mail Server" "is_service_installed stalwart-mail.service" "$INSTALL_MODE"; then
+        SERVICE_FORCE_MODE=true
+    fi
+
+    if [ "$CONTINUE_MODE" = true ] && is_step_completed "$STEP_NAME" && [ "$SERVICE_FORCE_MODE" != true ]; then
+        echo "  [Пропуск] Stalwart уже установлен"
+    else
+        if [ "$SERVICE_FORCE_MODE" = true ]; then
+            save_install_state "$STEP_NAME" "in_progress"
+            if [ -f "$SCRIPT_DIR/install-stalwart.sh" ]; then
+                STALWART_ARGS=()
+                [ -n "$MAIL_DOMAIN" ] && STALWART_ARGS+=("$MAIL_DOMAIN")
+                [ -n "$LETSENCRYPT_EMAIL" ] && STALWART_ARGS+=("$LETSENCRYPT_EMAIL")
+                [ "$SERVICE_FORCE_MODE" = true ] && STALWART_ARGS+=("--force")
+                
+                bash "$SCRIPT_DIR/install-stalwart.sh" "${STALWART_ARGS[@]}"
+                if [ $? -eq 0 ]; then
+                    save_install_state "$STEP_NAME" "completed"
+                    echo "  [OK] Stalwart установлен"
+                else
+                    echo "  [ОШИБКА] Не удалось установить Stalwart"
+                    if [ "$CONTINUE_MODE" != true ]; then
+                        echo "Используйте --continue для продолжения"
+                        exit 1
+                    fi
+                fi
+            else
+                echo "  [ОШИБКА] Скрипт install-stalwart.sh не найден"
+                exit 1
+            fi
+        else
+            if [ "$INSTALL_MODE" = "ask" ]; then
+                echo "  [Пропуск] Stalwart уже установлен (пользователь отказался от переустановки)"
+            else
+                echo "  [Пропуск] Stalwart уже установлен"
+            fi
+        fi
+    fi
+else
+    echo "  [Пропуск] Stalwart Mail Server не выбран"
+    save_install_state "$STEP_NAME" "completed"
 fi
 
 # Конфигурация Traefik для всех сервисов
 echo ""
-echo "=== [9/9] Конфигурация Traefik для всех сервисов ==="
+echo "=== [10/10] Конфигурация Traefik для всех сервисов ==="
 STEP_NAME="configure_traefik"
 if [ "$CONTINUE_MODE" = true ] && is_step_completed "$STEP_NAME" && [ "$FORCE_MODE" != true ]; then
     echo "  [Пропуск] Traefik уже настроен"
@@ -539,6 +637,7 @@ TRAEFIK_OK=false
 GITLAB_OK=false
 N8N_OK=false
 UI_OK=false
+STALWART_OK=false
 
 if systemctl is-active --quiet traefik; then
     echo "  ✓ Traefik - запущен"
@@ -568,7 +667,16 @@ else
     echo "  ✗ Веб-интерфейс - не запущен (проверьте: systemctl status management-ui)"
 fi
 
-if [ "$TRAEFIK_OK" = false ] || [ "$GITLAB_OK" = false ] || [ "$N8N_OK" = false ] || [ "$UI_OK" = false ]; then
+if [ -n "$MAIL_DOMAIN" ]; then
+    if systemctl is-active --quiet stalwart-mail; then
+        echo "  ✓ Stalwart Mail Server - запущен"
+        STALWART_OK=true
+    else
+        echo "  ✗ Stalwart Mail Server - не запущен (проверьте: systemctl status stalwart-mail)"
+    fi
+fi
+
+if [ "$TRAEFIK_OK" = false ] || [ "$GITLAB_OK" = false ] || [ "$N8N_OK" = false ] || [ "$UI_OK" = false ] || ([ -n "$MAIL_DOMAIN" ] && [ "$STALWART_OK" = false ]); then
     echo ""
     echo "ВНИМАНИЕ: Некоторые сервисы не запущены!"
     echo "Проверьте логи и статус сервисов перед использованием."
@@ -592,6 +700,11 @@ echo "Доступ к сервисам:"
 echo "  - GitLab: https://$GITLAB_DOMAIN"
 echo "  - n8n: https://$N8N_DOMAIN"
 echo "  - Веб-интерфейс управления: https://$UI_DOMAIN"
+if [ -n "$MAIL_DOMAIN" ]; then
+    BASE_DOMAIN=$(echo "$MAIL_DOMAIN" | sed 's/^[^.]*\.//')
+    ADMIN_DOMAIN="mail-admin.$BASE_DOMAIN"
+    echo "  - Stalwart Mail Server: https://$ADMIN_DOMAIN"
+fi
 echo "  - Traefik Dashboard: http://localhost:8080"
 echo ""
 echo "Порты сервисов (внутренние, только localhost):"
@@ -604,6 +717,12 @@ echo "  - n8n: http://127.0.0.1:5678"
 echo "  - Management UI: http://127.0.0.1:3000"
 echo "  - Local DNS API: http://127.0.0.1:5353"
 echo "  - dnsmasq: 53 (UDP, DNS)"
+if [ -n "$MAIL_DOMAIN" ]; then
+    echo "  - Stalwart Mail Server:"
+    echo "    * Веб-админка: http://127.0.0.1:8081"
+    echo "    * SMTP: 25, 587, 465 (внешние)"
+    echo "    * IMAP: 143, 993 (внешние)"
+fi
 echo ""
 echo "Все порты уникальны и не конфликтуют между собой."
 echo ""
@@ -611,10 +730,19 @@ echo "ВАЖНО:"
 echo "  1. Сохраните начальный пароль GitLab root (проверьте /etc/gitlab/initial_root_password)"
 echo "  2. SSL сертификаты будут получены автоматически в течение нескольких минут"
 echo "  3. Проверьте DNS записи для всех доменов"
+if [ -n "$MAIL_DOMAIN" ]; then
+    echo "  4. Stalwart Mail Server:"
+    echo "     - Войдите в веб-админку и создайте домен"
+    echo "     - Добавьте DNS записи (MX, SPF, DKIM, DMARC) - см. веб-админку"
+    echo "     - Сохраните admin credentials (если они были выведены при установке)"
+fi
 echo ""
 echo "Полезные команды:"
 echo "  systemctl status traefik"
 echo "  systemctl status gitlab-runsvdir"
 echo "  systemctl status n8n"
 echo "  systemctl status management-ui"
+if [ -n "$MAIL_DOMAIN" ]; then
+    echo "  systemctl status stalwart-mail"
+fi
 echo ""

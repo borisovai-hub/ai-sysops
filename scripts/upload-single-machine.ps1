@@ -132,6 +132,7 @@ $filesToUpload = @(
     "$ScriptDir\single-machine\install-gitlab.sh",
     "$ScriptDir\single-machine\install-n8n.sh",
     "$ScriptDir\single-machine\install-management-ui.sh",
+    "$ScriptDir\single-machine\install-stalwart.sh",
     "$ScriptDir\single-machine\setup-dns-api.sh",
     "$ScriptDir\single-machine\configure-traefik.sh"
 )

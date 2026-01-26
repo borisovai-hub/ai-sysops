@@ -125,6 +125,7 @@ FILES=(
     "$SCRIPT_DIR/single-machine/install-gitlab.sh"
     "$SCRIPT_DIR/single-machine/install-n8n.sh"
     "$SCRIPT_DIR/single-machine/install-management-ui.sh"
+    "$SCRIPT_DIR/single-machine/install-stalwart.sh"
     "$SCRIPT_DIR/single-machine/setup-dns-api.sh"
     "$SCRIPT_DIR/single-machine/configure-traefik.sh"
 )

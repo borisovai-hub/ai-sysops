@@ -163,6 +163,15 @@ if systemctl is-active --quiet traefik; then
     echo "  - GitLab: https://${GITLAB_DOMAIN}"
     echo "  - n8n: https://${N8N_DOMAIN}"
     echo "  - Веб-интерфейс: https://${UI_DOMAIN}"
+    
+    # Проверка наличия Stalwart
+    if [ -f "/etc/traefik/dynamic/stalwart.yml" ]; then
+        STALWART_ADMIN_DOMAIN=$(grep -o "Host(\`[^\`]*\`)" /etc/traefik/dynamic/stalwart.yml | grep "mail-admin" | sed "s/Host(\`\(.*\)\`)/\1/" | head -1)
+        if [ -n "$STALWART_ADMIN_DOMAIN" ]; then
+            echo "  - Stalwart Mail Server: https://${STALWART_ADMIN_DOMAIN}"
+        fi
+    fi
+    
     echo ""
     echo "Примечание: SSL сертификаты будут получены автоматически в течение нескольких минут"
 else
