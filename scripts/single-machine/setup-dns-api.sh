@@ -326,8 +326,64 @@ case "$1" in
             echo "Использование: manage-dns create <subdomain> <ip>"
             exit 1
         fi
-        echo "Создание DNS записи для $SUBDOMAIN.$DOMAIN -> $IP"
-        echo "Примечание: Полная реализация требует дополнительной настройки"
+        
+        case "$PROVIDER" in
+            cloudflare)
+                API_TOKEN=$(jq -r '.api_token' "$CONFIG_FILE")
+                ZONE_ID=$(jq -r '.zone_id' "$CONFIG_FILE")
+                
+                # Проверка существования записи
+                RECORD_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
+                    -H "Authorization: Bearer $API_TOKEN" \
+                    -H "Content-Type: application/json" | jq -r '.result[0].id // empty')
+                
+                if [ -n "$RECORD_ID" ]; then
+                    # Обновление существующей записи
+                    curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+                        -H "Authorization: Bearer $API_TOKEN" \
+                        -H "Content-Type: application/json" \
+                        --data "{\"type\":\"A\",\"name\":\"$SUBDOMAIN\",\"content\":\"$IP\",\"ttl\":300}" > /dev/null
+                    echo "DNS запись обновлена: $SUBDOMAIN.$DOMAIN -> $IP"
+                else
+                    # Создание новой записи
+                    curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+                        -H "Authorization: Bearer $API_TOKEN" \
+                        -H "Content-Type: application/json" \
+                        --data "{\"type\":\"A\",\"name\":\"$SUBDOMAIN\",\"content\":\"$IP\",\"ttl\":300}" > /dev/null
+                    echo "DNS запись создана: $SUBDOMAIN.$DOMAIN -> $IP"
+                fi
+                ;;
+            digitalocean)
+                API_TOKEN=$(jq -r '.api_token' "$CONFIG_FILE")
+                
+                # Создание/обновление записи
+                curl -s -X POST "https://api.digitalocean.com/v2/domains/$DOMAIN/records" \
+                    -H "Authorization: Bearer $API_TOKEN" \
+                    -H "Content-Type: application/json" \
+                    --data "{\"type\":\"A\",\"name\":\"$SUBDOMAIN\",\"data\":\"$IP\",\"ttl\":300}" > /dev/null
+                echo "DNS запись создана: $SUBDOMAIN.$DOMAIN -> $IP"
+                ;;
+            local)
+                API_URL=$(jq -r '.api_url // "http://127.0.0.1:5353"' "$CONFIG_FILE")
+                AUTH_FILE="/etc/dns-api/auth.json"
+                if [ -f "$AUTH_FILE" ]; then
+                    USERNAME=$(jq -r '.username' "$AUTH_FILE")
+                    PASSWORD=$(jq -r '.password' "$AUTH_FILE")
+                    curl -s -X POST "$API_URL/api/dns/create" \
+                        -u "$USERNAME:$PASSWORD" \
+                        -H "Content-Type: application/json" \
+                        --data "{\"subdomain\":\"$SUBDOMAIN\",\"ip\":\"$IP\"}" > /dev/null
+                    echo "DNS запись создана: $SUBDOMAIN.$DOMAIN -> $IP"
+                else
+                    echo "Ошибка: Файл авторизации не найден: $AUTH_FILE"
+                    exit 1
+                fi
+                ;;
+            *)
+                echo "Неподдерживаемый провайдер: $PROVIDER"
+                exit 1
+                ;;
+        esac
         ;;
     delete)
         SUBDOMAIN="$2"
@@ -335,8 +391,29 @@ case "$1" in
             echo "Использование: manage-dns delete <subdomain>"
             exit 1
         fi
-        echo "Удаление DNS записи для $SUBDOMAIN.$DOMAIN"
-        echo "Примечание: Полная реализация требует дополнительной настройки"
+        
+        case "$PROVIDER" in
+            cloudflare)
+                API_TOKEN=$(jq -r '.api_token' "$CONFIG_FILE")
+                ZONE_ID=$(jq -r '.zone_id' "$CONFIG_FILE")
+                
+                RECORD_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
+                    -H "Authorization: Bearer $API_TOKEN" \
+                    -H "Content-Type: application/json" | jq -r '.result[0].id // empty')
+                
+                if [ -n "$RECORD_ID" ]; then
+                    curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+                        -H "Authorization: Bearer $API_TOKEN" > /dev/null
+                    echo "DNS запись удалена: $SUBDOMAIN.$DOMAIN"
+                else
+                    echo "Запись не найдена"
+                fi
+                ;;
+            *)
+                echo "Удаление для $PROVIDER не реализовано"
+                exit 1
+                ;;
+        esac
         ;;
     *)
         echo "Использование: manage-dns {test|create|delete}"

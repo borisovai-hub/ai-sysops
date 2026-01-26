@@ -9,7 +9,8 @@ param(
     [string]$Username = "",
     [string]$RemotePath = "~/install",
     [switch]$UseKey = $false,
-    [string]$KeyPath = ""
+    [string]$KeyPath = "",
+    [switch]$Check = $false
 )
 
 # Определение директории скрипта (абсолютный путь)
@@ -67,13 +68,65 @@ Write-Host "Script directory: $ScriptDir" -ForegroundColor Gray
 Write-Host "Project root: $ProjectRoot" -ForegroundColor Gray
 Write-Host ""
 
-# Check if SCP command exists
-$scpCheck = Get-Command scp -ErrorAction SilentlyContinue
-if (-not $scpCheck) {
-    Write-Host "Error: 'scp' command not found!" -ForegroundColor Red
+# Check if SCP command exists (skip when -Check)
+if (-not $Check) {
+    $scpCheck = Get-Command scp -ErrorAction SilentlyContinue
+    if (-not $scpCheck) {
+        Write-Host "Error: 'scp' command not found!" -ForegroundColor Red
+        exit 1
+    }
+}
+
+# List of files to upload (абсолютные пути относительно скрипта)
+$filesToUpload = @(
+    "$ScriptDir\single-machine\common.sh",
+    "$ScriptDir\single-machine\install-all.sh",
+    "$ScriptDir\single-machine\install-traefik.sh",
+    "$ScriptDir\single-machine\install-gitlab.sh",
+    "$ScriptDir\single-machine\install-n8n.sh",
+    "$ScriptDir\single-machine\install-management-ui.sh",
+    "$ScriptDir\single-machine\install-mailu.sh",
+    "$ScriptDir\single-machine\mailu-setup-render.py",
+    "$ScriptDir\single-machine\setup-dns-api.sh",
+    "$ScriptDir\single-machine\configure-traefik.sh"
+)
+$managementUiPath = "$ProjectRoot\management-ui"
+$dnsApiPath = "$ScriptDir\dns-api"
+
+# Check if files exist
+Write-Host "Checking files for upload..." -ForegroundColor Yellow
+$missingFiles = @()
+foreach ($file in $filesToUpload) {
+    if (-not (Test-Path $file)) {
+        $missingFiles += $file
+        Write-Host "  [X] $file - not found" -ForegroundColor Red
+    } else {
+        Write-Host "  [OK] $(Split-Path -Leaf $file) - found" -ForegroundColor Green
+    }
+}
+if (-not (Test-Path $managementUiPath)) {
+    $missingFiles += "management-ui/"
+    Write-Host "  [X] management-ui/ - not found" -ForegroundColor Red
+} else {
+    Write-Host "  [OK] management-ui/ - found" -ForegroundColor Green
+}
+if (-not (Test-Path $dnsApiPath)) {
+    $missingFiles += "dns-api/"
+    Write-Host "  [X] dns-api/ - not found" -ForegroundColor Red
+} else {
+    Write-Host "  [OK] dns-api/ - found" -ForegroundColor Green
+}
+
+if ($missingFiles.Count -gt 0) {
     Write-Host ""
-    Write-Host "Install OpenSSH client or use alternative: WinSCP, FileZilla" -ForegroundColor Yellow
+    Write-Host "Error: Some files not found!" -ForegroundColor Red
     exit 1
+}
+
+if ($Check) {
+    Write-Host ""
+    Write-Host "Check passed (-Check). Upload skipped." -ForegroundColor Green
+    exit 0
 }
 
 # Request connection data with saved defaults
@@ -124,56 +177,6 @@ if (-not $UseKey) {
     }
 }
 
-# List of files to upload (абсолютные пути относительно скрипта)
-$filesToUpload = @(
-    "$ScriptDir\single-machine\common.sh",
-    "$ScriptDir\single-machine\install-all.sh",
-    "$ScriptDir\single-machine\install-traefik.sh",
-    "$ScriptDir\single-machine\install-gitlab.sh",
-    "$ScriptDir\single-machine\install-n8n.sh",
-    "$ScriptDir\single-machine\install-management-ui.sh",
-    "$ScriptDir\single-machine\install-stalwart.sh",
-    "$ScriptDir\single-machine\setup-dns-api.sh",
-    "$ScriptDir\single-machine\configure-traefik.sh"
-)
-
-# Check if files exist
-Write-Host "Checking files for upload..." -ForegroundColor Yellow
-$missingFiles = @()
-foreach ($file in $filesToUpload) {
-    if (-not (Test-Path $file)) {
-        $missingFiles += $file
-        Write-Host "  [X] $file - not found" -ForegroundColor Red
-    } else {
-        Write-Host "  [OK] $file - found" -ForegroundColor Green
-    }
-}
-
-# Check management-ui directory (абсолютный путь)
-$managementUiPath = "$ProjectRoot\management-ui"
-if (-not (Test-Path $managementUiPath)) {
-    $missingFiles += "management-ui/"
-    Write-Host "  [X] management-ui/ - not found at $managementUiPath" -ForegroundColor Red
-} else {
-    Write-Host "  [OK] management-ui/ - found at $managementUiPath" -ForegroundColor Green
-}
-
-# Check dns-api directory (абсолютный путь)
-$dnsApiPath = "$ScriptDir\dns-api"
-if (-not (Test-Path $dnsApiPath)) {
-    $missingFiles += "dns-api/"
-    Write-Host "  [X] dns-api/ - not found at $dnsApiPath" -ForegroundColor Red
-} else {
-    Write-Host "  [OK] dns-api/ - found at $dnsApiPath" -ForegroundColor Green
-}
-
-if ($missingFiles.Count -gt 0) {
-    Write-Host ""
-    Write-Host "Error: Some files not found!" -ForegroundColor Red
-    Write-Host "Make sure all scripts are in the correct directories." -ForegroundColor Yellow
-    exit 1
-}
-
 # Build SCP command
 $scpArgs = @()
 
@@ -203,69 +206,120 @@ Write-Host "Command to execute:" -ForegroundColor Cyan
 Write-Host "scp $($scpArgs -join ' ')" -ForegroundColor Gray
 Write-Host ""
 
-# Execute command
+# Normalize line endings (CRLF -> LF) before upload
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+function ConvertTo-Lf {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return }
+    $text = [System.IO.File]::ReadAllText($Path)
+    if ($text -match "`r`n") {
+        [System.IO.File]::WriteAllText($Path, ($text -replace "`r`n", "`n"), $utf8NoBom)
+    }
+}
+Write-Host "Normalizing line endings (CRLF -> LF)..." -ForegroundColor Gray
+foreach ($f in $filesToUpload) { ConvertTo-Lf -Path $f }
+if (Test-Path $dnsApiPath) {
+    Get-ChildItem -Path $dnsApiPath -Filter "*.sh" -ErrorAction SilentlyContinue | ForEach-Object { ConvertTo-Lf -Path $_.FullName }
+}
+$smPath = "$ScriptDir\single-machine"
+if (Test-Path $smPath) {
+    Get-ChildItem -Path $smPath -Filter "*.py" -ErrorAction SilentlyContinue | ForEach-Object { ConvertTo-Lf -Path $_.FullName }
+}
+Write-Host "  [OK] Ready to upload" -ForegroundColor Green
+Write-Host ""
+
+# Execute upload with check after each step
+function Invoke-Ssh {
+    param([string]$Command)
+    $a = @()
+    if ($UseKey) { $a += "-i"; $a += $KeyPath }
+    $a += "${Username}@${ServerIP}"
+    $a += $Command
+    & ssh @a
+    return $LASTEXITCODE -eq 0
+}
+
+Write-Host "Uploading files to server..." -ForegroundColor Yellow
+if (-not $UseKey) { Write-Host "Enter password when prompted:" -ForegroundColor Yellow }
+Write-Host ""
+
+$uploadOk = $true
+
+# 1. Create directory on server
+Write-Host "  1/4 Creating directories..." -ForegroundColor Gray
 try {
-    Write-Host "Uploading files to server..." -ForegroundColor Yellow
-    Write-Host "This may take some time..." -ForegroundColor Gray
-    if (-not $UseKey) {
-        Write-Host "Enter password when prompted:" -ForegroundColor Yellow
-    }
-    Write-Host ""
-    
-    # Create directory on server
-    $sshArgs = @()
-    if ($UseKey) {
-        $sshArgs += "-i"
-        $sshArgs += $KeyPath
-    }
-    $sshArgs += "${Username}@${ServerIP}"
-    $sshArgs += "mkdir -p ${RemotePath}/scripts/single-machine"
-    
-    & ssh $sshArgs
-    
-    # Upload scripts
-    & scp $scpArgs
-    
-    # Upload management-ui (используем абсолютный путь)
-    $uiArgs = @()
-    if ($UseKey) {
-        $uiArgs += "-i"
-        $uiArgs += $KeyPath
-    }
-    $uiArgs += "-r"
-    $uiArgs += $managementUiPath
-    $uiArgs += "${Username}@${ServerIP}:${RemotePath}/"
-    
-    & scp $uiArgs
-    
-    # Upload dns-api (используем абсолютный путь)
-    $dnsApiArgs = @()
-    if ($UseKey) {
-        $dnsApiArgs += "-i"
-        $dnsApiArgs += $KeyPath
-    }
-    $dnsApiArgs += "-r"
-    $dnsApiArgs += $dnsApiPath
-    $dnsApiArgs += "${Username}@${ServerIP}:${RemotePath}/scripts/"
-    
-    & scp $dnsApiArgs
-    
-    if ($LASTEXITCODE -eq 0 -or $?) {
-        Write-Host ""
-        Write-Host "Files uploaded successfully!" -ForegroundColor Green
-        Write-Host ""
-        Write-Host "Next steps on server:" -ForegroundColor Cyan
-        Write-Host "1. Connect via SSH: ssh ${Username}@${ServerIP}" -ForegroundColor White
-        Write-Host "2. Go to directory: cd ${RemotePath}/scripts/single-machine" -ForegroundColor White
-        Write-Host "3. Make scripts executable: chmod +x *.sh" -ForegroundColor White
-        Write-Host "4. Run installation: sudo ./install-all.sh" -ForegroundColor White
-    } else {
-        Write-Host ""
-        Write-Host "Error uploading files!" -ForegroundColor Red
-        exit 1
+    if (-not (Invoke-Ssh "mkdir -p ${RemotePath}/scripts/single-machine")) {
+        Write-Host "  [ERROR] SSH or mkdir failed" -ForegroundColor Red
+        $uploadOk = $false
     }
 } catch {
+    Write-Host "  [ERROR] $_" -ForegroundColor Red
+    $uploadOk = $false
+}
+
+# 2. Upload scripts
+if ($uploadOk) {
+    Write-Host "  2/4 Uploading single-machine scripts..." -ForegroundColor Gray
+    try {
+        & scp @scpArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  [ERROR] Scripts upload failed" -ForegroundColor Red
+            $uploadOk = $false
+        }
+    } catch {
+        Write-Host "  [ERROR] $_" -ForegroundColor Red
+        $uploadOk = $false
+    }
+}
+
+# 3. Upload management-ui
+if ($uploadOk) {
+    Write-Host "  3/4 Uploading management-ui..." -ForegroundColor Gray
+    $uiArgs = @()
+    if ($UseKey) { $uiArgs += "-i"; $uiArgs += $KeyPath }
+    $uiArgs += "-r"; $uiArgs += $managementUiPath; $uiArgs += "${Username}@${ServerIP}:${RemotePath}/"
+    try {
+        & scp @uiArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  [ERROR] management-ui upload failed" -ForegroundColor Red
+            $uploadOk = $false
+        }
+    } catch {
+        Write-Host "  [ERROR] $_" -ForegroundColor Red
+        $uploadOk = $false
+    }
+}
+
+# 4. Upload dns-api
+if ($uploadOk) {
+    Write-Host "  4/4 Uploading dns-api..." -ForegroundColor Gray
+    $dnsApiArgs = @()
+    if ($UseKey) { $dnsApiArgs += "-i"; $dnsApiArgs += $KeyPath }
+    $dnsApiArgs += "-r"; $dnsApiArgs += $dnsApiPath; $dnsApiArgs += "${Username}@${ServerIP}:${RemotePath}/scripts/"
+    try {
+        & scp @dnsApiArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  [ERROR] dns-api upload failed" -ForegroundColor Red
+            $uploadOk = $false
+        }
+    } catch {
+        Write-Host "  [ERROR] $_" -ForegroundColor Red
+        $uploadOk = $false
+    }
+}
+
+if ($uploadOk) {
     Write-Host ""
-    Write-Host "Error: $_" -ForegroundColor Red
+    Write-Host "Files uploaded successfully!" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Next steps on server:" -ForegroundColor Cyan
+    Write-Host "  1. ssh ${Username}@${ServerIP}" -ForegroundColor White
+    Write-Host "  2. cd ${RemotePath}/scripts/single-machine" -ForegroundColor White
+    Write-Host "  3. chmod +x *.sh" -ForegroundColor White
+    Write-Host "  4. sudo ./install-all.sh" -ForegroundColor White
+} else {
+    Write-Host ""
+    Write-Host "Upload failed. Check: IP, user, SSH access" -ForegroundColor Red
+    if ($UseKey) { Write-Host "  and key path: $KeyPath" -ForegroundColor Gray }
     exit 1
 }

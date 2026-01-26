@@ -24,6 +24,7 @@
 - **[POWERSHELL_ENCODING.md](POWERSHELL_ENCODING.md)** - Решение проблем с кодировкой в PowerShell
 - **[INSTALL_SSH_COPY_ID.md](INSTALL_SSH_COPY_ID.md)** - Установка ssh-copy-id для Git Bash
 - **[UPLOAD_EXAMPLES.md](UPLOAD_EXAMPLES.md)** - Примеры использования скриптов загрузки
+- **[VSCODE_FIX.md](VSCODE_FIX.md)** - Исправление ошибки ICU в Visual Studio Code
 
 ## Дополнительные инструменты
 

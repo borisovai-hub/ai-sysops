@@ -68,8 +68,9 @@ is_package_installed() {
 }
 
 # Проверка установленного systemd сервиса
+# Принимает "mailu", "mailu.service" и т.п. — суффикс .service отбрасывается при наличии
 is_service_installed() {
-    local service="$1"
+    local service="${1%.service}"
     systemctl list-unit-files 2>/dev/null | grep -q "^${service}\.service"
 }
 

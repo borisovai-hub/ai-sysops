@@ -1,11 +1,16 @@
 #!/bin/bash
 # Скрипт загрузки файлов для установки на одну машину
-# Использование: ./upload-single-machine.sh
+# Использование: ./upload-single-machine.sh [--check]
+#   --check  только проверить наличие файлов, без загрузки
 #
 # Примечание: Скрипт можно запускать из любой директории.
 # Он автоматически определит свое расположение и найдет все необходимые файлы.
 
 set -e
+CHECK_ONLY=false
+for a in "$@"; do
+    [ "$a" = "--check" ] && CHECK_ONLY=true
+done
 
 # Определение директории скрипта (абсолютный путь)
 # Это позволяет запускать скрипт из любой директории
@@ -81,16 +86,54 @@ echo "Директория скрипта: $SCRIPT_DIR"
 echo "Корень проекта: $PROJECT_ROOT"
 echo ""
 
-# Запрос данных для подключения с сохранением
+# Список файлов и проверка наличия (до запроса данных)
+FILES=(
+    "$SCRIPT_DIR/single-machine/common.sh"
+    "$SCRIPT_DIR/single-machine/install-all.sh"
+    "$SCRIPT_DIR/single-machine/install-traefik.sh"
+    "$SCRIPT_DIR/single-machine/install-gitlab.sh"
+    "$SCRIPT_DIR/single-machine/install-n8n.sh"
+    "$SCRIPT_DIR/single-machine/install-management-ui.sh"
+    "$SCRIPT_DIR/single-machine/install-mailu.sh"
+    "$SCRIPT_DIR/single-machine/mailu-setup-render.py"
+    "$SCRIPT_DIR/single-machine/setup-dns-api.sh"
+    "$SCRIPT_DIR/single-machine/configure-traefik.sh"
+)
+MANAGEMENT_UI_PATH="$PROJECT_ROOT/management-ui"
+DNS_API_PATH="$SCRIPT_DIR/dns-api"
+
+echo "Проверка файлов для загрузки..."
+MISSING_FILES=0
+for file in "${FILES[@]}"; do
+    if [ -f "$file" ]; then
+        echo "  [✓] $(basename "$file") - найден"
+    else
+        echo "  [X] $file - не найден"
+        MISSING_FILES=1
+    fi
+done
+[ -d "$MANAGEMENT_UI_PATH" ] && echo "  [✓] management-ui/ - найдена" || { echo "  [X] management-ui/ - не найдена"; MISSING_FILES=1; }
+[ -d "$DNS_API_PATH" ]       && echo "  [✓] dns-api/ - найдена"       || { echo "  [X] dns-api/ - не найдена";       MISSING_FILES=1; }
+
+if [ $MISSING_FILES -eq 1 ]; then
+    echo ""
+    echo "Ошибка: Некоторые файлы не найдены!"
+    exit 1
+fi
+
+if [ "$CHECK_ONLY" = true ]; then
+    echo ""
+    echo "✓ Проверка пройдена (--check). Загрузка не выполнялась."
+    exit 0
+fi
+
+# Запрос данных для подключения
+echo ""
 SERVER_IP=$(prompt_with_default "Введите IP адрес сервера" "server_ip")
 USERNAME=$(prompt_with_default "Введите имя пользователя (обычно root)" "username" "root")
 REMOTE_PATH=$(prompt_with_default "Введите путь на сервере" "remote_path" "~/install")
+[ -z "$REMOTE_PATH" ] && REMOTE_PATH="~/install"
 
-if [ -z "$REMOTE_PATH" ]; then
-    REMOTE_PATH="~/install"
-fi
-
-# Выбор метода аутентификации
 echo ""
 echo "Выберите метод аутентификации:"
 echo "1) SSH ключ"
@@ -101,71 +144,16 @@ SCP_OPTIONS=""
 if [ "$AUTH_METHOD" = "1" ]; then
     save_config_value "auth_method" "1"
     KEY_PATH=$(prompt_with_default "Введите путь к SSH ключу" "key_path" "$HOME/.ssh/id_rsa")
-    if [ -z "$KEY_PATH" ]; then
-        KEY_PATH="$HOME/.ssh/id_rsa"
-    fi
-    
+    [ -z "$KEY_PATH" ] && KEY_PATH="$HOME/.ssh/id_rsa"
     if [ ! -f "$KEY_PATH" ]; then
         echo "Ошибка: SSH ключ не найден: $KEY_PATH"
         exit 1
     fi
-    
     SCP_OPTIONS="-i $KEY_PATH"
     echo "Используется SSH ключ: $KEY_PATH"
 else
     save_config_value "auth_method" "2"
     echo "Будет запрошен пароль при подключении"
-fi
-
-# Список файлов для загрузки (абсолютные пути относительно скрипта)
-FILES=(
-    "$SCRIPT_DIR/single-machine/common.sh"
-    "$SCRIPT_DIR/single-machine/install-all.sh"
-    "$SCRIPT_DIR/single-machine/install-traefik.sh"
-    "$SCRIPT_DIR/single-machine/install-gitlab.sh"
-    "$SCRIPT_DIR/single-machine/install-n8n.sh"
-    "$SCRIPT_DIR/single-machine/install-management-ui.sh"
-    "$SCRIPT_DIR/single-machine/install-stalwart.sh"
-    "$SCRIPT_DIR/single-machine/setup-dns-api.sh"
-    "$SCRIPT_DIR/single-machine/configure-traefik.sh"
-)
-
-# Проверка наличия файлов
-echo ""
-echo "Проверка файлов для загрузки..."
-MISSING_FILES=0
-for file in "${FILES[@]}"; do
-    if [ -f "$file" ]; then
-        echo "  [✓] $file - найден"
-    else
-        echo "  [X] $file - не найден"
-        MISSING_FILES=1
-    fi
-done
-
-# Проверка директории management-ui (абсолютный путь)
-MANAGEMENT_UI_PATH="$PROJECT_ROOT/management-ui"
-if [ -d "$MANAGEMENT_UI_PATH" ]; then
-    echo "  [✓] management-ui/ - найдена в $MANAGEMENT_UI_PATH"
-else
-    echo "  [X] management-ui/ - не найдена в $MANAGEMENT_UI_PATH"
-    MISSING_FILES=1
-fi
-
-# Проверка директории dns-api (абсолютный путь)
-DNS_API_PATH="$SCRIPT_DIR/dns-api"
-if [ -d "$DNS_API_PATH" ]; then
-    echo "  [✓] dns-api/ - найдена в $DNS_API_PATH"
-else
-    echo "  [X] dns-api/ - не найдена в $DNS_API_PATH"
-    MISSING_FILES=1
-fi
-
-if [ $MISSING_FILES -eq 1 ]; then
-    echo ""
-    echo "Ошибка: Некоторые файлы не найдены!"
-    echo "Убедитесь, что все скрипты находятся в правильных директориях."
-    exit 1
 fi
 
 # Формирование команды SCP
@@ -185,54 +173,80 @@ else
 fi
 echo ""
 
-# Выполнение команды
+# Нормализация окончаний строк (CRLF → LF) перед отправкой — избежать ошибок на сервере
+echo "Нормализация окончаний строк (CRLF → LF)..."
+for f in "${FILES[@]}" "$DNS_API_PATH"/*.sh "$SCRIPT_DIR/single-machine"/*.py; do
+    [ -f "$f" ] && sed -i 's/\r$//' "$f" 2>/dev/null || true
+done
+echo "  [OK] Готово к отправке"
+echo ""
+
+# Выполнение загрузки с проверкой после каждой операции
 echo "Загрузка файлов на сервер..."
-if [ -n "$SCP_OPTIONS" ]; then
-    # Создание директории на сервере
-    ssh $SCP_OPTIONS "${USERNAME}@${SERVER_IP}" "mkdir -p ${REMOTE_PATH}/scripts/single-machine"
-    
-    # Загрузка скриптов
-    scp $SCP_OPTIONS "${FILES[@]}" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/scripts/single-machine/"
-    
-    # Загрузка management-ui (используем абсолютный путь)
-    scp $SCP_OPTIONS -r "$MANAGEMENT_UI_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/"
-    
-    # Загрузка dns-api (используем абсолютный путь)
-    scp $SCP_OPTIONS -r "$DNS_API_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/scripts/"
-else
-    # Создание директории на сервере
-    ssh "${USERNAME}@${SERVER_IP}" "mkdir -p ${REMOTE_PATH}/scripts/single-machine"
-    
-    # Загрузка скриптов
-    scp "${FILES[@]}" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/scripts/single-machine/"
-    
-    # Загрузка management-ui (используем абсолютный путь)
-    scp -r "$MANAGEMENT_UI_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/"
-    
-    # Загрузка dns-api (используем абсолютный путь)
-    scp -r "$DNS_API_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/scripts/"
+UPLOAD_FAILED=0
+
+do_ssh() {
+    if [ -n "$SCP_OPTIONS" ]; then
+        ssh $SCP_OPTIONS "${USERNAME}@${SERVER_IP}" "$1"
+    else
+        ssh "${USERNAME}@${SERVER_IP}" "$1"
+    fi
+}
+
+do_scp() {
+    if [ -n "$SCP_OPTIONS" ]; then
+        scp $SCP_OPTIONS "$@"
+    else
+        scp "$@"
+    fi
+}
+
+# Создание директорий на сервере
+echo "  1/4 Создание директорий..."
+if ! do_ssh "mkdir -p ${REMOTE_PATH}/scripts/single-machine"; then
+    echo "  [ОШИБКА] Не удалось подключиться по SSH или создать директории"
+    UPLOAD_FAILED=1
 fi
 
-if [ $? -eq 0 ]; then
+if [ $UPLOAD_FAILED -eq 0 ]; then
+    echo "  2/4 Загрузка скриптов single-machine..."
+    if ! do_scp "${FILES[@]}" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/scripts/single-machine/"; then
+        echo "  [ОШИБКА] Не удалось загрузить скрипты"
+        UPLOAD_FAILED=1
+    fi
+fi
+
+if [ $UPLOAD_FAILED -eq 0 ]; then
+    echo "  3/4 Загрузка management-ui..."
+    if ! do_scp -r "$MANAGEMENT_UI_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/"; then
+        echo "  [ОШИБКА] Не удалось загрузить management-ui"
+        UPLOAD_FAILED=1
+    fi
+fi
+
+if [ $UPLOAD_FAILED -eq 0 ]; then
+    echo "  4/4 Загрузка dns-api..."
+    if ! do_scp -r "$DNS_API_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/scripts/"; then
+        echo "  [ОШИБКА] Не удалось загрузить dns-api"
+        UPLOAD_FAILED=1
+    fi
+fi
+
+if [ $UPLOAD_FAILED -eq 0 ]; then
     echo ""
     echo "✓ Файлы успешно загружены!"
     echo ""
     echo "Следующие шаги на сервере:"
-    echo "1. Подключитесь по SSH: ssh ${USERNAME}@${SERVER_IP}"
-    echo "2. Перейдите в директорию: cd ${REMOTE_PATH}/scripts/single-machine"
-    echo "3. Сделайте скрипты исполняемыми: chmod +x *.sh"
-    echo "4. Запустите установку: sudo ./install-all.sh"
+    echo "  1. Подключитесь: ssh ${USERNAME}@${SERVER_IP}"
+    echo "  2. Перейдите: cd ${REMOTE_PATH}/scripts/single-machine"
+    echo "  3. chmod +x *.sh"
+    echo "  4. sudo ./install-all.sh"
 else
     echo ""
     echo "Ошибка при загрузке файлов!"
-    echo "Проверьте:"
-    echo "  - Правильность IP адреса и имени пользователя"
-    echo "  - Доступность сервера по сети"
-    echo "  - Наличие SSH доступа"
+    echo "Проверьте: IP, пользователь, SSH доступ"
     if [ "$AUTH_METHOD" = "1" ]; then
-        echo "  - Правильность пути к SSH ключу"
-    else
-        echo "  - Правильность пароля"
+        echo "  и путь к SSH ключу: $KEY_PATH"
     fi
     exit 1
 fi

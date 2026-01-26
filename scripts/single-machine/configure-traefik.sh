@@ -143,12 +143,7 @@ update_config "$DYNAMIC_DIR/management-ui.yml" "management-ui" "$UI_DOMAIN" "htt
 # Перезагрузка Traefik
 echo "[4/4] Перезагрузка Traefik..."
 if systemctl is-active --quiet traefik; then
-    systemctl reload traefik
-    if [ $? -ne 0 ]; then
-        echo "  [ОШИБКА] Не удалось перезагрузить Traefik"
-        echo "  Попытка полной перезагрузки..."
-        systemctl restart traefik
-    fi
+    systemctl reload traefik 2>/dev/null || systemctl restart traefik
 else
     echo "  [Предупреждение] Traefik не запущен, запуск..."
     systemctl start traefik
@@ -164,11 +159,12 @@ if systemctl is-active --quiet traefik; then
     echo "  - n8n: https://${N8N_DOMAIN}"
     echo "  - Веб-интерфейс: https://${UI_DOMAIN}"
     
-    # Проверка наличия Stalwart
-    if [ -f "/etc/traefik/dynamic/stalwart.yml" ]; then
-        STALWART_ADMIN_DOMAIN=$(grep -o "Host(\`[^\`]*\`)" /etc/traefik/dynamic/stalwart.yml | grep "mail-admin" | sed "s/Host(\`\(.*\)\`)/\1/" | head -1)
-        if [ -n "$STALWART_ADMIN_DOMAIN" ]; then
-            echo "  - Stalwart Mail Server: https://${STALWART_ADMIN_DOMAIN}"
+    # Проверка наличия Mailu
+    if [ -f "/etc/traefik/dynamic/mailu.yml" ]; then
+        MAILU_ADMIN_DOMAIN=$(grep -A 5 "mailu-admin:" /etc/traefik/dynamic/mailu.yml | grep -o "Host(\`[^\`]*\`)" | sed "s/Host(\`\(.*\)\`)/\1/" | head -1)
+        if [ -n "$MAILU_ADMIN_DOMAIN" ]; then
+            echo "  - Mailu Mail Server (Admin): https://${MAILU_ADMIN_DOMAIN}/admin"
+            echo "  - Mailu Mail Server (Webmail): https://${MAILU_ADMIN_DOMAIN}"
         fi
     fi
     
