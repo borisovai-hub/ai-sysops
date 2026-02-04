@@ -1,0 +1,14 @@
+# Пример SSH config для подключения к серверу установки на одну машину.
+# Скопируйте блок ниже в ~/.ssh/config (Windows: %USERPROFILE%\.ssh\config)
+# и замените HostName, User, IdentityFile на свои значения.
+#
+# После настройки в Cursor/VS Code:
+# 1. F1 → Remote-SSH: Connect to Host…
+# 2. Выберите хост "server" (или имя из Host)
+# 3. File → Open Folder → укажите путь на сервере, например /root/install
+
+Host server
+    HostName 192.168.1.100
+    User root
+    IdentityFile ~/.ssh/id_rsa
+    # IdentityFile C:\Users\YourName\.ssh\id_rsa   # Windows: раскомментируйте и укажите свой путь

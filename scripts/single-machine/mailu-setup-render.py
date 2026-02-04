@@ -13,7 +13,7 @@ import urllib.request
 try:
     import jinja2
 except ImportError:
-    print("Ошибка: установите jinja2 (apt install python3-jinja2 или pip install jinja2)", file=sys.stderr)
+    print("Ошибка: установите jinja2 (apt-get install python3-jinja2 или pip install jinja2)", file=sys.stderr)
     sys.exit(1)
 
 MAILU_SETUP_BASE = "https://raw.githubusercontent.com/Mailu/Mailu/master/setup/flavors/compose"
@@ -37,6 +37,7 @@ def main() -> None:
     ap.add_argument("--initial-admin-account", default="admin", help="Admin username (local part)")
     ap.add_argument("--initial-admin-password", default="", help="Admin password (empty = generate random)")
     ap.add_argument("--templates-dir", default="", help="Dir with docker-compose.yml + mailu.env templates (else fetch)")
+    ap.add_argument("--webdav", action="store_true", help="Enable WebDAV (Radicale) for CalDAV/CardDAV (calendar and contacts)")
     args = ap.parse_args()
 
     root = args.root.rstrip("/")
@@ -85,7 +86,7 @@ def main() -> None:
     ipv6_enabled = True
     version = "2.0"
     webmail_type = "roundcube"
-    webdav_enabled = False
+    webdav_enabled = args.webdav
     admin_enabled = True
     tika_enabled = False
     oletools_enabled = False

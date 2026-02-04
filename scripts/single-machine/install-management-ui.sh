@@ -46,9 +46,15 @@ INSTALL_ROOT="$(cd "$INSTALL_ROOT" && pwd)"
 echo "=== Установка веб-интерфейса управления ==="
 echo ""
 
-if [ "$EUID" -ne 0 ]; then 
+if [ "$EUID" -ne 0 ]; then
     echo "Ошибка: Запустите скрипт с правами root (sudo)"
     exit 1
+fi
+
+if [ -n "$(get_config_value "base_domains")" ]; then
+    UI_PREFIX=$(get_config_value "ui_prefix")
+    [ -z "$UI_PREFIX" ] && UI_PREFIX="ui"
+    save_config_value "ui_prefix" "$UI_PREFIX"
 fi
 
 # Проверка существования management-ui
@@ -71,7 +77,7 @@ fi
 if ! command -v node &> /dev/null; then
     echo "[1/5] Установка Node.js..."
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt install -y nodejs
+    apt-get install -y nodejs
 else
     echo "[1/5] Node.js уже установлен: $(node --version)"
 fi

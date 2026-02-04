@@ -1,0 +1,62 @@
+# Шаблон CI/CD для frontend-приложений (Next.js/React)
+# Генерируется оркестратором. Переменные {{RUNNER_TAG}} и {{DEFAULT_BRANCH}} подставляются при генерации.
+# CI Variables (задаются через GitLab API): DEPLOY_PATH, PM2_APP_NAME, FRONTEND_ENV (file)
+
+stages:
+  - build
+  - deploy
+
+variables:
+  NODE_VERSION: "20"
+
+build:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  cache:
+    key: deps-${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+  script:
+    - npm ci
+    - npm run build
+  artifacts:
+    paths:
+      - .next/
+      - package.json
+      - package-lock.json
+      - next.config.*
+      - tsconfig.json
+      - public/
+      - src/
+      - messages/
+    expire_in: 1 hour
+  rules:
+    - if: $CI_COMMIT_BRANCH == "{{DEFAULT_BRANCH}}"
+
+deploy:
+  stage: deploy
+  tags:
+    - {{RUNNER_TAG}}
+  dependencies:
+    - build
+  script:
+    - mkdir -p $DEPLOY_PATH
+    # Копирование артефактов сборки
+    - rm -rf $DEPLOY_PATH/.next
+    - cp -r .next $DEPLOY_PATH/.next
+    - cp -r src $DEPLOY_PATH/src 2>/dev/null || true
+    - cp -r public $DEPLOY_PATH/public 2>/dev/null || true
+    - cp -r messages $DEPLOY_PATH/messages 2>/dev/null || true
+    - cp package.json $DEPLOY_PATH/package.json
+    - cp package-lock.json $DEPLOY_PATH/package-lock.json
+    - cp next.config.* $DEPLOY_PATH/ 2>/dev/null || true
+    - cp tsconfig.json $DEPLOY_PATH/tsconfig.json 2>/dev/null || true
+    # Переменные окружения
+    - test -f "$FRONTEND_ENV" && cp "$FRONTEND_ENV" $DEPLOY_PATH/.env.local || true
+    # Установка зависимостей и перезапуск
+    - cd $DEPLOY_PATH
+    - npm ci --omit=dev
+    - pm2 restart $PM2_APP_NAME || pm2 start npm --name $PM2_APP_NAME -- start
+    - pm2 save
+  rules:
+    - if: $CI_COMMIT_BRANCH == "{{DEFAULT_BRANCH}}"

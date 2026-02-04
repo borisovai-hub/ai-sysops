@@ -1,0 +1,5 @@
+{
+  "provider": "local",
+  "domain": "{{BASE_DOMAIN}}",
+  "port": 5353
+}

@@ -58,29 +58,45 @@ show_port_usage() {
 MAIL_DOMAIN=""
 LETSENCRYPT_EMAIL=""
 FORCE_MODE=false
+CALENDAR_MODE=false
+ADD_CALENDAR_MODE=false
+ADD_CALENDAR_DIR=""
 
 for arg in "$@"; do
     case $arg in
         --force)
             FORCE_MODE=true
             ;;
+        --calendar)
+            CALENDAR_MODE=true
+            ;;
+        --add-calendar)
+            ADD_CALENDAR_MODE=true
+            ;;
         --help|-h)
-            echo "Использование: $0 <mail-domain> <letsencrypt-email> [--force]"
+            echo "Использование: $0 <mail-domain> <letsencrypt-email> [--force] [--calendar] | $0 --add-calendar [mailu-dir]"
             echo ""
             echo "Конфиг: при отсутствии файлов создаётся из шаблонов Mailu; иначе — из /opt/mailu."
             echo ""
             echo "Параметры:"
-            echo "  mail-domain       - Домен для почты (например, mail.example.com)"
+            echo "  mail-domain       - Хост веб-интерфейса почты (например, mail.dev.borisovai.ru)"
             echo "  letsencrypt-email - Email для Let's Encrypt сертификатов"
             echo "  --force           - Переустановка (остановка, docker compose down, опционально удаление /opt/mailu)"
+            echo "  --calendar        - При новой установке: включить CalDAV/CardDAV (календарь и контакты)"
+            echo "  --add-calendar    - Добавить календарь в уже установленный Mailu (mailu-dir по умолчанию /opt/mailu)"
             echo ""
             echo "Примеры:"
-            echo "  sudo $0 mail.borisovai.ru admin@borisovai.ru"
-            echo "  sudo $0 mail.borisovai.ru admin@borisovai.ru --force  # Переустановка"
+            echo "  sudo $0 mail.dev.borisovai.ru admin@borisovai.ru"
+            echo "  sudo $0 mail.dev.borisovai.ru admin@borisovai.ru --calendar  # Новая установка с календарём"
+            echo "  sudo $0 --add-calendar   # Добавить календарь в установленный Mailu"
+            echo "  sudo $0 --add-calendar /opt/mailu"
+            echo "  sudo $0 mail.dev.borisovai.ru admin@borisovai.ru --force  # Переустановка"
             exit 0
             ;;
         *)
-            if [ -z "$MAIL_DOMAIN" ]; then
+            if [ "$ADD_CALENDAR_MODE" = true ] && [ -z "$ADD_CALENDAR_DIR" ] && [ "$arg" != "--force" ] && [ "$arg" != "--calendar" ]; then
+                ADD_CALENDAR_DIR="$arg"
+            elif [ -z "$MAIL_DOMAIN" ]; then
                 MAIL_DOMAIN="$arg"
             elif [ -z "$LETSENCRYPT_EMAIL" ]; then
                 LETSENCRYPT_EMAIL="$arg"
@@ -89,20 +105,44 @@ for arg in "$@"; do
     esac
 done
 
+if [ "$ADD_CALENDAR_MODE" = true ]; then
+    ADD_SCRIPT="$SCRIPT_DIR/add-mailu-calendar.sh"
+    if [ ! -x "$ADD_SCRIPT" ]; then
+        echo "Ошибка: не найден или не исполняем $ADD_SCRIPT"
+        exit 1
+    fi
+    exec "$ADD_SCRIPT" "${ADD_CALENDAR_DIR:-/opt/mailu}"
+fi
+
 echo "=== Установка Mailu Mail Server ==="
 echo ""
 
 # Получение параметров если не переданы
+MAIL_HOSTNAMES=""
 if [ -z "$MAIL_DOMAIN" ]; then
-    MAIL_DOMAIN=$(get_config_value "mail_domain")
-    if [ -z "$MAIL_DOMAIN" ]; then
-        MAIL_DOMAIN=$(prompt_and_save "mail_domain" "Домен для почты (например, mail.borisovai.ru)" "mail.borisovai.ru")
+    if [ -n "$(get_config_value "base_domains")" ]; then
+        MAIL_PREFIX=$(get_config_value "mail_prefix")
+        [ -z "$MAIL_PREFIX" ] && MAIL_PREFIX="mail"
+        MAIL_MIDDLE=$(get_config_value "mail_middle")
+        save_config_value "mail_prefix" "$MAIL_PREFIX"
+        MAIL_DOMAIN=$(build_service_domains "$MAIL_PREFIX" "$MAIL_MIDDLE" | head -1)
+        MAIL_HOSTNAMES=$(build_service_domains "$MAIL_PREFIX" "$MAIL_MIDDLE" | tr '\n' ',' | sed 's/,$//')
         if [ -z "$MAIL_DOMAIN" ]; then
-            echo "Ошибка: Домен обязателен"
+            echo "Ошибка: Не удалось получить домен из base_domains"
             exit 1
         fi
+        echo "Используются базовые домены, основной домен почты: $MAIL_DOMAIN"
     else
-        echo "Используется сохраненный домен: $MAIL_DOMAIN"
+        MAIL_DOMAIN=$(get_config_value "mail_domain")
+        if [ -z "$MAIL_DOMAIN" ]; then
+            MAIL_DOMAIN=$(prompt_and_save "mail_domain" "Хост веб-интерфейса почты (например, mail.dev.borisovai.ru)" "mail.dev.borisovai.ru")
+            if [ -z "$MAIL_DOMAIN" ]; then
+                echo "Ошибка: Домен обязателен"
+                exit 1
+            fi
+        else
+            echo "Используется сохраненный домен: $MAIL_DOMAIN"
+        fi
     fi
 fi
 
@@ -135,7 +175,13 @@ if [ -z "$LETSENCRYPT_EMAIL" ]; then
     fi
 fi
 
-BASE_DOMAIN=$(echo "$MAIL_DOMAIN" | sed 's/^[^.]*\.//')
+# Почтовый домен (для адресов user@borisovai.ru). Хост веб-интерфейса = MAIL_DOMAIN (mail.dev.borisovai.ru)
+if echo "$MAIL_DOMAIN" | grep -qE '^mail\.dev\.'; then
+    BASE_DOMAIN=$(echo "$MAIL_DOMAIN" | sed 's/^mail\.dev\.//')
+else
+    BASE_DOMAIN=$(echo "$MAIL_DOMAIN" | sed 's/^[^.]*\.//')
+fi
+echo "  Почтовый домен (адреса): $BASE_DOMAIN, веб-интерфейс: https://$MAIL_DOMAIN"
 MAILU_HTTP_PORT=6555
 MAILU_HTTPS_PORT=6554
 
@@ -217,6 +263,12 @@ fi
 # Генерация конфигурации из официальных шаблонов Mailu, если файлов нет
 if [ ! -f "$MAILU_DIR/docker-compose.yml" ] || [ ! -f "$MAILU_DIR/mailu.env" ]; then
     echo "  [Генерация] docker-compose.yml и mailu.env отсутствуют — создаём из официальных шаблонов Mailu (setup.mailu.io)."
+    if [ "$CALENDAR_MODE" != true ]; then
+        read -p "  Включить календарь и контакты (CalDAV/CardDAV)? (y/n) [n]: " ENABLE_CALENDAR
+        if [ "$ENABLE_CALENDAR" = "y" ] || [ "$ENABLE_CALENDAR" = "Y" ]; then
+            CALENDAR_MODE=true
+        fi
+    fi
     mkdir -p "$MAILU_DIR"
     if ! command -v python3 &>/dev/null; then
         echo "  Установка python3..."
@@ -228,7 +280,7 @@ if [ ! -f "$MAILU_DIR/docker-compose.yml" ] || [ ! -f "$MAILU_DIR/mailu.env" ]; 
         apt-get update -qq && apt-get install -y -qq python3-jinja2 >/dev/null 2>&1
     fi
     if ! python3 -c "import jinja2" 2>/dev/null; then
-        echo "Ошибка: не удалось установить python3-jinja2. Установите вручную: apt install python3-jinja2"
+        echo "Ошибка: не удалось установить python3-jinja2. Установите вручную: apt-get install python3-jinja2"
         print_setup_mailu_instructions
         exit 1
     fi
@@ -238,12 +290,22 @@ if [ ! -f "$MAILU_DIR/docker-compose.yml" ] || [ ! -f "$MAILU_DIR/mailu.env" ]; 
         print_setup_mailu_instructions
         exit 1
     fi
-    if ! python3 "$RENDERER" --domain "$BASE_DOMAIN" --hostnames "$MAIL_DOMAIN" --postmaster admin --root "$MAILU_DIR" --tls-flavor mail-letsencrypt --http-port "$MAILU_HTTP_PORT" --https-port "$MAILU_HTTPS_PORT" --initial-admin-account admin; then
+    HOSTNAMES_FOR_MAILU="${MAIL_HOSTNAMES:-$MAIL_DOMAIN}"
+    RENDER_ARGS="--domain $BASE_DOMAIN --hostnames $HOSTNAMES_FOR_MAILU --postmaster admin --root $MAILU_DIR --tls-flavor mail-letsencrypt --http-port $MAILU_HTTP_PORT --https-port $MAILU_HTTPS_PORT --initial-admin-account admin"
+    [ "$CALENDAR_MODE" = true ] && RENDER_ARGS="$RENDER_ARGS --webdav"
+    if ! python3 "$RENDERER" $RENDER_ARGS; then
         echo "Ошибка генерации конфигурации Mailu"
         print_setup_mailu_instructions
         exit 1
     fi
     echo "  [OK] Конфигурация создана из официальных шаблонов"
+    if [ "$CALENDAR_MODE" = true ]; then
+        echo "  [OK] CalDAV/CardDAV (календарь и контакты) включены"
+        if grep -q 'webdav:' "$MAILU_DIR/docker-compose.yml" && ! grep -A 25 '^  webdav:' "$MAILU_DIR/docker-compose.yml" | head -26 | grep -q 'depends_on:'; then
+            awk 'BEGIN{added=0} /^  webdav:/{w=1;has_dep=0} w&&/depends_on:/{has_dep=1} w&&/^  [a-zA-Z][a-zA-Z0-9]*:/&&!/^  webdav/{w=0} w&&/dav:\/data/&&!has_dep&&!added{print;print "    depends_on:";print "      - front";added=1;next} {print}' "$MAILU_DIR/docker-compose.yml" > "$MAILU_DIR/docker-compose.yml.tmp" && mv "$MAILU_DIR/docker-compose.yml.tmp" "$MAILU_DIR/docker-compose.yml"
+            echo "  [OK] Патч webdav (depends_on: front) применён"
+        fi
+    fi
 fi
 
 mkdir -p "$MAILU_DIR"/{data,dkim,certs,redis,filter,mail,mailqueue,webmail,dav}
@@ -302,7 +364,7 @@ fi
 echo ""
 echo "[1/7] Обновление пакетов..."
 export DEBIAN_FRONTEND=noninteractive
-apt update
+apt-get update
 
 # Установка Docker
 echo ""
@@ -416,8 +478,23 @@ if is_service_installed "traefik.service" || [ -f "/opt/traefik/traefik" ]; then
     DYNAMIC_DIR="/etc/traefik/dynamic"
     mkdir -p "$DYNAMIC_DIR"
     
-    # Создание конфигурации Traefik для Mailu
     MAILU_TRAEFIK_CONFIG="$DYNAMIC_DIR/mailu.yml"
+    if [ -n "$(get_config_value "base_domains")" ]; then
+        MAIL_PREFIX=$(get_config_value "mail_prefix")
+        [ -z "$MAIL_PREFIX" ] && MAIL_PREFIX="mail"
+        MAIL_MIDDLE=$(get_config_value "mail_middle")
+        MAILU_HOST_RULE=""
+        while IFS= read -r full; do
+            [ -z "$full" ] && continue
+            if [ -n "$MAILU_HOST_RULE" ]; then
+                MAILU_HOST_RULE="${MAILU_HOST_RULE} || Host(\`${full}\`)"
+            else
+                MAILU_HOST_RULE="Host(\`${full}\`)"
+            fi
+        done < <(build_service_domains "$MAIL_PREFIX" "$MAIL_MIDDLE")
+    else
+        MAILU_HOST_RULE="Host(\`$MAIL_DOMAIN\`)"
+    fi
     
     cat > "$MAILU_TRAEFIK_CONFIG" << EOF
 http:
@@ -435,35 +512,54 @@ http:
         sslRedirect: false
         forceSTSHeader: false
 
+    mailu-compress:
+      compress:
+        excludedContentTypes:
+          - "text/event-stream"
+
   routers:
     mailu-admin:
-      rule: "Host(\`$MAIL_DOMAIN\`) && PathPrefix(\`/admin\`)"
+      rule: "(${MAILU_HOST_RULE}) && PathPrefix(\`/admin\`)"
       service: mailu-front
       entryPoints:
         - websecure
       middlewares:
         - mailu-headers
+        - mailu-compress
       tls:
         certResolver: letsencrypt
       priority: 10
     
     mailu-webmail:
-      rule: "Host(\`$MAIL_DOMAIN\`) && (Path(\`/\`) || PathPrefix(\`/webmail\`))"
+      rule: "(${MAILU_HOST_RULE}) && (Path(\`/\`) || PathPrefix(\`/webmail\`))"
       service: mailu-front
       entryPoints:
         - websecure
       middlewares:
         - mailu-headers
+        - mailu-compress
       tls:
         certResolver: letsencrypt
       priority: 5
 
+    mailu-catchall:
+      rule: "${MAILU_HOST_RULE}"
+      service: mailu-front
+      entryPoints:
+        - websecure
+      middlewares:
+        - mailu-headers
+        - mailu-compress
+      tls:
+        certResolver: letsencrypt
+      priority: 1
+
   services:
     mailu-front:
       loadBalancer:
+        passHostHeader: true
         servers:
           - url: "http://127.0.0.1:$MAILU_HTTP_PORT"
-        passHostHeader: true
 EOF
     
     chmod 644 "$MAILU_TRAEFIK_CONFIG"
@@ -483,89 +579,27 @@ else
     echo "  После установки Traefik создайте конфигурацию вручную"
 fi
 
-# Создание DNS записи
+# Создание DNS записей для Mailu
 echo ""
-echo "Создание DNS записи для Mailu..."
-if [ -n "$MAIL_DOMAIN" ] && command -v manage-dns &> /dev/null; then
-    SERVER_IP=$(curl -s ifconfig.me || curl -s ifconfig.co || hostname -I | awk '{print $1}')
-    if [ -n "$SERVER_IP" ] && [ -n "$MAIL_DOMAIN" ]; then
+echo "Создание DNS записей для Mailu..."
+if [ -n "$MAIL_DOMAIN" ]; then
+    if [ -n "$(get_config_value "base_domains")" ]; then
+        MAIL_PREFIX=$(get_config_value "mail_prefix")
+        [ -z "$MAIL_PREFIX" ] && MAIL_PREFIX="mail"
+        create_dns_records_for_domains "$MAIL_PREFIX"
+    elif command -v manage-dns &> /dev/null; then
+        SERVER_IP=$(curl -s ifconfig.me || curl -s ifconfig.co || hostname -I | awk '{print $1}')
         CLEAN_DOMAIN=$(echo "$MAIL_DOMAIN" | sed 's|^https\?://||')
-        
-        # Получение базового домена из конфигурации DNS API
-        DNS_CONFIG_FILE="/etc/dns-api/config.json"
-        if [ -f "$DNS_CONFIG_FILE" ]; then
-            CONFIG_DOMAIN=$(jq -r '.domain' "$DNS_CONFIG_FILE" 2>/dev/null || echo "")
-            if [ -n "$CONFIG_DOMAIN" ] && [ "$CONFIG_DOMAIN" != "null" ]; then
-                if echo "$CLEAN_DOMAIN" | grep -q "\.$CONFIG_DOMAIN$"; then
-                    SUBDOMAIN=$(echo "$CLEAN_DOMAIN" | sed "s/\.$CONFIG_DOMAIN\$//")
-                    DOMAIN="$CONFIG_DOMAIN"
-                else
-                    if echo "$CLEAN_DOMAIN" | grep -q '\.'; then
-                        DOMAIN_PARTS=$(echo "$CLEAN_DOMAIN" | tr '.' '\n' | wc -l)
-                        if [ "$DOMAIN_PARTS" -ge 3 ]; then
-                            SUBDOMAIN=$(echo "$CLEAN_DOMAIN" | rev | cut -d'.' -f3- | rev)
-                            DOMAIN=$(echo "$CLEAN_DOMAIN" | rev | cut -d'.' -f1-2 | rev)
-                        else
-                            SUBDOMAIN=$(echo "$CLEAN_DOMAIN" | cut -d'.' -f1)
-                            DOMAIN=$(echo "$CLEAN_DOMAIN" | cut -d'.' -f2-)
-                        fi
-                    else
-                        SUBDOMAIN="$CLEAN_DOMAIN"
-                        DOMAIN=""
-                    fi
-                fi
-            else
-                if echo "$CLEAN_DOMAIN" | grep -q '\.'; then
-                    DOMAIN_PARTS=$(echo "$CLEAN_DOMAIN" | tr '.' '\n' | wc -l)
-                    if [ "$DOMAIN_PARTS" -ge 3 ]; then
-                        SUBDOMAIN=$(echo "$CLEAN_DOMAIN" | rev | cut -d'.' -f3- | rev)
-                        DOMAIN=$(echo "$CLEAN_DOMAIN" | rev | cut -d'.' -f1-2 | rev)
-                    else
-                        SUBDOMAIN=$(echo "$CLEAN_DOMAIN" | cut -d'.' -f1)
-                        DOMAIN=$(echo "$CLEAN_DOMAIN" | cut -d'.' -f2-)
-                    fi
-                else
-                    SUBDOMAIN="$CLEAN_DOMAIN"
-                    DOMAIN=""
-                fi
-            fi
-        else
-            if echo "$CLEAN_DOMAIN" | grep -q '\.'; then
-                DOMAIN_PARTS=$(echo "$CLEAN_DOMAIN" | tr '.' '\n' | wc -l)
-                if [ "$DOMAIN_PARTS" -ge 3 ]; then
-                    SUBDOMAIN=$(echo "$CLEAN_DOMAIN" | rev | cut -d'.' -f3- | rev)
-                    DOMAIN=$(echo "$CLEAN_DOMAIN" | rev | cut -d'.' -f1-2 | rev)
-                else
-                    SUBDOMAIN=$(echo "$CLEAN_DOMAIN" | cut -d'.' -f1)
-                    DOMAIN=$(echo "$CLEAN_DOMAIN" | cut -d'.' -f2-)
-                fi
-            else
-                SUBDOMAIN="$CLEAN_DOMAIN"
-                DOMAIN=""
+        if [ -n "$SERVER_IP" ] && echo "$CLEAN_DOMAIN" | grep -q '\.'; then
+            SUBDOMAIN=$(echo "$CLEAN_DOMAIN" | cut -d'.' -f1)
+            DOMAIN=$(echo "$CLEAN_DOMAIN" | cut -d'.' -f2-)
+            if [ -n "$SUBDOMAIN" ] && [ -n "$DOMAIN" ]; then
+                echo "  Создание DNS записи: $SUBDOMAIN.$DOMAIN -> $SERVER_IP"
+                manage-dns create "$SUBDOMAIN" "$SERVER_IP" 2>/dev/null || echo "  [Предупреждение] Не удалось создать DNS запись"
             fi
         fi
-        
-        if [ -n "$SUBDOMAIN" ] && [ -n "$DOMAIN" ] && [ "$SUBDOMAIN" != "--force" ] && [ "$DOMAIN" != "null" ] && [ "$SUBDOMAIN" != "null" ]; then
-            echo "  Создание DNS записи: $SUBDOMAIN.$DOMAIN -> $SERVER_IP"
-            if manage-dns create "$SUBDOMAIN" "$SERVER_IP" 2>/dev/null; then
-                echo "  [OK] DNS запись создана автоматически"
-            else
-                echo "  [Предупреждение] Не удалось создать DNS запись автоматически"
-                echo "  Создайте запись вручную: manage-dns create $SUBDOMAIN $SERVER_IP"
-                echo "  Или добавьте A запись: $MAIL_DOMAIN -> $SERVER_IP"
-            fi
-        else
-            echo "  [Предупреждение] Не удалось корректно извлечь поддомен и домен из: $MAIL_DOMAIN"
-            echo "  Создайте DNS запись вручную для домена: $MAIL_DOMAIN -> $SERVER_IP"
-        fi
-    fi
-else
-    if [ -z "$MAIL_DOMAIN" ]; then
-        echo "  [Предупреждение] Домен не установлен, пропуск создания DNS записи"
-    elif [ ! -x "$(command -v manage-dns)" ]; then
-        echo "  [Предупреждение] Скрипт manage-dns не найден"
-        echo "  Создайте DNS запись вручную для домена: $MAIL_DOMAIN"
-        echo "  Или настройте DNS API: sudo bash setup-dns-api.sh"
+    else
+        echo "  [Предупреждение] Скрипт manage-dns не найден, создайте DNS запись вручную для $MAIL_DOMAIN"
     fi
 fi
 
@@ -618,6 +652,11 @@ if systemctl is-active --quiet "$MAILU_SERVICE"; then
     if is_service_installed "traefik.service" || [ -f "/opt/traefik/traefik" ]; then
         echo "  - Веб-админка (через Traefik): https://$MAIL_DOMAIN/admin"
         echo "  - Webmail (через Traefik): https://$MAIL_DOMAIN"
+        if grep -q 'webdav:' "$MAILU_DIR/docker-compose.yml" 2>/dev/null; then
+            echo "  - Календарь и контакты (CalDAV/CardDAV): https://$MAIL_DOMAIN/webdav/.web"
+            echo "    (вход: полный email и пароль почтового ящика)"
+            echo "  - Полноценный веб-календарь (InfCloud): sudo ./install-mailu-infcloud.sh  — затем https://calendar.$MAIL_DOMAIN"
+        fi
     else
         echo "  - Webmail (локально): http://127.0.0.1:$MAILU_HTTP_PORT"
         echo "  Примечание: После установки Traefik настройте проксирование"

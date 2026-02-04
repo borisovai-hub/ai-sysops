@@ -1,0 +1,46 @@
+# CI/CD для borisovai-admin — автодеплой на сервер при push в main
+# CI Variables (задаются в GitLab Settings → CI/CD → Variables):
+#   GITLAB_URL, GITLAB_TOKEN (masked), STRAPI_URL, STRAPI_TOKEN (masked), BASE_DOMAIN
+
+stages:
+  - validate
+  - deploy
+  - verify
+
+validate:configs:
+  stage: validate
+  tags:
+    - deploy-production
+  script:
+    - bash scripts/ci/render-configs.sh --validate
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+deploy:
+  stage: deploy
+  tags:
+    - deploy-production
+  script:
+    # Рендеринг конфигов из шаблонов + CI Variables
+    - bash scripts/ci/render-configs.sh
+
+    # Деплой Management UI
+    - bash scripts/ci/deploy-management-ui.sh
+
+    # Деплой DNS API
+    - bash scripts/ci/deploy-dns-api.sh
+
+    # Копирование скриптов обслуживания
+    - mkdir -p /opt/borisovai-admin/scripts
+    - cp -r scripts/single-machine/ /opt/borisovai-admin/scripts/single-machine/
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+verify:
+  stage: verify
+  tags:
+    - deploy-production
+  script:
+    - bash scripts/ci/health-check.sh
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"

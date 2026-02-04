@@ -1,0 +1,138 @@
+# Шаблон CI/CD для fullstack-приложений (Frontend + Backend)
+# На основе рабочего пайплайна borisovai-site.
+# Генерируется оркестратором. Переменные {{RUNNER_TAG}} и {{DEFAULT_BRANCH}} подставляются при генерации.
+# CI Variables: DEPLOY_PATH, PM2_APP_NAME, FRONTEND_ENV (file), BACKEND_ENV (file)
+# Структура проекта: frontend/ и backend/ в корне репозитория.
+
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  NODE_VERSION: "20"
+
+# --- Test Stage ---
+
+lint:frontend:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  cache:
+    key: frontend-deps-${CI_COMMIT_REF_SLUG}
+    paths:
+      - frontend/node_modules/
+  script:
+    - cd frontend
+    - npm install
+    - npm run lint
+  rules:
+    - if: $CI_COMMIT_BRANCH == "{{DEFAULT_BRANCH}}"
+  allow_failure: true
+
+# --- Build Stage ---
+
+build:frontend:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  cache:
+    key: frontend-deps-${CI_COMMIT_REF_SLUG}
+    paths:
+      - frontend/node_modules/
+  script:
+    - cd frontend
+    - npm install
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/.next/
+      - frontend/package.json
+      - frontend/package-lock.json
+      - frontend/next.config.*
+      - frontend/tsconfig.json
+      - frontend/src/
+      - frontend/messages/
+      - frontend/public/
+    expire_in: 1 hour
+  rules:
+    - if: $CI_COMMIT_BRANCH == "{{DEFAULT_BRANCH}}"
+
+build:backend:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  cache:
+    key: backend-deps-${CI_COMMIT_REF_SLUG}
+    paths:
+      - backend/node_modules/
+  script:
+    - cd backend
+    - npm install
+    - npm run build
+  artifacts:
+    paths:
+      - backend/package.json
+      - backend/package-lock.json
+      - backend/config/
+      - backend/src/
+      - backend/dist/
+    expire_in: 1 hour
+  rules:
+    - if: $CI_COMMIT_BRANCH == "{{DEFAULT_BRANCH}}"
+
+# --- Deploy Stage ---
+
+deploy:
+  stage: deploy
+  tags:
+    - {{RUNNER_TAG}}
+  dependencies:
+    - build:frontend
+    - build:backend
+  script:
+    # Директории
+    - mkdir -p $DEPLOY_PATH/frontend
+    - mkdir -p $DEPLOY_PATH/backend
+    # Переменные окружения
+    - test -f "$FRONTEND_ENV" && cp "$FRONTEND_ENV" $DEPLOY_PATH/frontend/.env.local || true
+    - test -f "$BACKEND_ENV" && cp "$BACKEND_ENV" $DEPLOY_PATH/backend/.env || true
+    # Deploy frontend
+    - rm -rf $DEPLOY_PATH/frontend/.next
+    - cp -r frontend/.next $DEPLOY_PATH/frontend/.next
+    - rm -rf $DEPLOY_PATH/frontend/src
+    - cp -r frontend/src $DEPLOY_PATH/frontend/src 2>/dev/null || true
+    - rm -rf $DEPLOY_PATH/frontend/messages
+    - cp -r frontend/messages $DEPLOY_PATH/frontend/messages 2>/dev/null || true
+    - rm -rf $DEPLOY_PATH/frontend/public
+    - cp -r frontend/public $DEPLOY_PATH/frontend/public 2>/dev/null || true
+    - cp frontend/package.json $DEPLOY_PATH/frontend/package.json
+    - cp frontend/package-lock.json $DEPLOY_PATH/frontend/package-lock.json
+    - cp frontend/next.config.* $DEPLOY_PATH/frontend/ 2>/dev/null || true
+    - cp frontend/tsconfig.json $DEPLOY_PATH/frontend/tsconfig.json 2>/dev/null || true
+    - cd $DEPLOY_PATH/frontend
+    - npm ci --omit=dev
+    # Deploy backend
+    - cd $CI_PROJECT_DIR
+    - cp backend/package.json $DEPLOY_PATH/backend/package.json
+    - cp backend/package-lock.json $DEPLOY_PATH/backend/package-lock.json
+    - rm -rf $DEPLOY_PATH/backend/config
+    - cp -r backend/config $DEPLOY_PATH/backend/config 2>/dev/null || true
+    - rm -rf $DEPLOY_PATH/backend/src
+    - cp -r backend/src $DEPLOY_PATH/backend/src
+    - rm -rf $DEPLOY_PATH/backend/dist
+    - cp -r backend/dist $DEPLOY_PATH/backend/dist 2>/dev/null || true
+    - cd $DEPLOY_PATH/backend
+    - mkdir -p public
+    - npm ci
+    - npm run build 2>/dev/null || true
+    # Перезапуск PM2
+    - cd $CI_PROJECT_DIR
+    - |
+      if [ -f ecosystem.config.js ]; then
+        cp ecosystem.config.js $DEPLOY_PATH/ecosystem.config.js
+        cd $DEPLOY_PATH
+        pm2 reload ecosystem.config.js
+      else
+        pm2 restart $PM2_APP_NAME || pm2 start npm --name $PM2_APP_NAME -- start
+      fi
+    - pm2 save
+  rules:
+    - if: $CI_COMMIT_BRANCH == "{{DEFAULT_BRANCH}}"

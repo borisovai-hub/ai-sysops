@@ -1,0 +1,59 @@
+# Шаблон CI/CD для backend-приложений (Node.js/Express/Strapi)
+# Генерируется оркестратором. Переменные {{RUNNER_TAG}} и {{DEFAULT_BRANCH}} подставляются при генерации.
+# CI Variables (задаются через GitLab API): DEPLOY_PATH, PM2_APP_NAME, BACKEND_ENV (file)
+
+stages:
+  - build
+  - deploy
+
+variables:
+  NODE_VERSION: "20"
+
+build:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  cache:
+    key: deps-${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+  script:
+    - npm ci
+    - npm run build
+  artifacts:
+    paths:
+      - package.json
+      - package-lock.json
+      - config/
+      - src/
+      - dist/
+    expire_in: 1 hour
+  rules:
+    - if: $CI_COMMIT_BRANCH == "{{DEFAULT_BRANCH}}"
+
+deploy:
+  stage: deploy
+  tags:
+    - {{RUNNER_TAG}}
+  dependencies:
+    - build
+  script:
+    - mkdir -p $DEPLOY_PATH
+    # Копирование артефактов
+    - cp package.json $DEPLOY_PATH/package.json
+    - cp package-lock.json $DEPLOY_PATH/package-lock.json
+    - rm -rf $DEPLOY_PATH/config
+    - cp -r config $DEPLOY_PATH/config 2>/dev/null || true
+    - rm -rf $DEPLOY_PATH/src
+    - cp -r src $DEPLOY_PATH/src
+    - rm -rf $DEPLOY_PATH/dist
+    - cp -r dist $DEPLOY_PATH/dist 2>/dev/null || true
+    # Переменные окружения
+    - test -f "$BACKEND_ENV" && cp "$BACKEND_ENV" $DEPLOY_PATH/.env || true
+    # Установка зависимостей и перезапуск
+    - cd $DEPLOY_PATH
+    - npm ci --omit=dev
+    - npm run build 2>/dev/null || true
+    - pm2 restart $PM2_APP_NAME || pm2 start npm --name $PM2_APP_NAME -- start
+    - pm2 save
+  rules:
+    - if: $CI_COMMIT_BRANCH == "{{DEFAULT_BRANCH}}"

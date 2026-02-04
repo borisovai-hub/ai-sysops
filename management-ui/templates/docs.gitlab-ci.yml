@@ -1,0 +1,71 @@
+# Шаблон CI/CD для сборки и публикации документации
+# Генерируется оркестратором. Переменные {{RUNNER_TAG}} и {{DEFAULT_BRANCH}} подставляются при генерации.
+# CI Variables: DOCS_DEPLOY_PATH (путь на сервере для публикации документации)
+#
+# Поддерживаемые генераторы (определяется автоматически):
+# - VitePress: docs/.vitepress/dist/
+# - MkDocs: site/
+# - Docusaurus: build/
+# - Общий: public/ или dist/
+
+stages:
+  - build
+  - deploy
+
+variables:
+  NODE_VERSION: "20"
+
+build:docs:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  script:
+    - |
+      if [ -f package.json ]; then
+        npm ci
+        # Попробовать стандартные команды сборки документации
+        npm run docs:build 2>/dev/null || \
+        npm run build:docs 2>/dev/null || \
+        npm run build 2>/dev/null || \
+        echo "Не найдена команда сборки документации"
+      elif [ -f requirements.txt ]; then
+        pip install -r requirements.txt
+        mkdocs build
+      fi
+  artifacts:
+    paths:
+      - docs/.vitepress/dist/
+      - site/
+      - build/
+      - public/
+      - dist/
+    expire_in: 1 hour
+  rules:
+    - if: $CI_COMMIT_BRANCH == "{{DEFAULT_BRANCH}}"
+
+deploy:docs:
+  stage: deploy
+  tags:
+    - {{RUNNER_TAG}}
+  dependencies:
+    - build:docs
+  script:
+    - mkdir -p $DOCS_DEPLOY_PATH
+    - rm -rf $DOCS_DEPLOY_PATH/*
+    # Копирование из первого найденного каталога с артефактами
+    - |
+      if [ -d "docs/.vitepress/dist" ]; then
+        cp -r docs/.vitepress/dist/* $DOCS_DEPLOY_PATH/
+      elif [ -d "site" ]; then
+        cp -r site/* $DOCS_DEPLOY_PATH/
+      elif [ -d "build" ]; then
+        cp -r build/* $DOCS_DEPLOY_PATH/
+      elif [ -d "dist" ]; then
+        cp -r dist/* $DOCS_DEPLOY_PATH/
+      elif [ -d "public" ]; then
+        cp -r public/* $DOCS_DEPLOY_PATH/
+      else
+        echo "Не найден каталог с собранной документацией"
+        exit 1
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "{{DEFAULT_BRANCH}}"

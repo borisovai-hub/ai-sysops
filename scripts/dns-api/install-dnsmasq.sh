@@ -15,8 +15,8 @@ echo ""
 # Установка dnsmasq
 echo "[1/4] Установка dnsmasq..."
 export DEBIAN_FRONTEND=noninteractive
-apt update
-apt install -y dnsmasq
+apt-get update
+apt-get install -y dnsmasq
 
 # Определение интерфейса для прослушивания
 echo ""

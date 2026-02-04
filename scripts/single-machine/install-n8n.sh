@@ -54,14 +54,14 @@ fi
 
 # Обновление пакетов перед установкой Node.js
 export DEBIAN_FRONTEND=noninteractive
-apt update
+apt-get update
 
 # Проверка/установка Node.js
 echo "[1/6] Проверка Node.js..."
 if ! command -v node &> /dev/null; then
     echo "Установка Node.js 20.x (LTS)..."
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt install -y nodejs
+    apt-get install -y nodejs
     echo "Node.js установлен: $(node --version)"
 else
     NODE_VERSION=$(node --version)
@@ -74,7 +74,7 @@ else
         read -p "Обновить Node.js? (y/n): " UPDATE_NODE
         if [ "$UPDATE_NODE" = "y" ] || [ "$UPDATE_NODE" = "Y" ]; then
             curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-            apt install -y nodejs
+            apt-get install -y nodejs
         fi
     fi
 fi
@@ -102,18 +102,27 @@ N8N_DIR="/opt/n8n"
 mkdir -p "$N8N_DIR"
 chown n8n:n8n "$N8N_DIR"
 
-# Определение домена n8n (если передан как аргумент)
+# Определение домена n8n
 if [ -z "$N8N_DOMAIN" ]; then
-    # Пытаемся загрузить из сохраненной конфигурации
-    N8N_DOMAIN=$(get_config_value "n8n_domain")
-    
-    if [ -z "$N8N_DOMAIN" ]; then
-        N8N_DOMAIN=$(prompt_and_save "n8n_domain" "Домен для n8n (например, n8n.example.com)" "n8n.example.com")
+    if [ -n "$(get_config_value "base_domains")" ]; then
+        N8N_PREFIX=$(get_config_value "n8n_prefix")
+        [ -z "$N8N_PREFIX" ] && N8N_PREFIX="n8n"
+        save_config_value "n8n_prefix" "$N8N_PREFIX"
+        N8N_DOMAIN=$(build_service_domains "$N8N_PREFIX" | head -1)
         if [ -z "$N8N_DOMAIN" ]; then
             N8N_DOMAIN="n8n.example.com"
         fi
+        echo "Используются базовые домены, основной домен n8n: $N8N_DOMAIN"
     else
-        echo "Используется сохраненный домен n8n: $N8N_DOMAIN"
+        N8N_DOMAIN=$(get_config_value "n8n_domain")
+        if [ -z "$N8N_DOMAIN" ]; then
+            N8N_DOMAIN=$(prompt_and_save "n8n_domain" "Домен для n8n (например, n8n.example.com)" "n8n.example.com")
+            if [ -z "$N8N_DOMAIN" ]; then
+                N8N_DOMAIN="n8n.example.com"
+            fi
+        else
+            echo "Используется сохраненный домен n8n: $N8N_DOMAIN"
+        fi
     fi
 fi
 
@@ -207,6 +216,13 @@ systemctl start n8n
 
 sleep 5
 if systemctl is-active --quiet n8n; then
+    if [ -n "$(get_config_value "base_domains")" ]; then
+        N8N_PREFIX=$(get_config_value "n8n_prefix")
+        [ -z "$N8N_PREFIX" ] && N8N_PREFIX="n8n"
+        echo ""
+        echo "Создание DNS записей для n8n..."
+        create_dns_records_for_domains "$N8N_PREFIX"
+    fi
     echo ""
     echo "=== Установка n8n завершена! ==="
     echo ""

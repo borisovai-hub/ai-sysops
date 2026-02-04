@@ -71,7 +71,7 @@ sudo ~/install/scripts/single-machine/install-all.sh
 Сервисы будут доступны по адресам:
 - **GitLab**: https://gitlab.example.com
 - **n8n**: https://n8n.example.com
-- **Mailu Mail Server** (если установлен): https://mail.borisovai.ru (webmail), https://mail.borisovai.ru/admin (админка)
+- **Mailu Mail Server** (если установлен): https://mail.dev.borisovai.ru (webmail), https://mail.dev.borisovai.ru/admin (админка); почтовый домен — borisovai.ru
 - **Веб-интерфейс**: https://manage.example.com
 - **Traefik Dashboard**: http://localhost:8080
 
@@ -138,19 +138,19 @@ systemctl restart n8n
 
 **Официальный мастер** [setup.mailu.io](https://setup.mailu.io) встроен в установку: при отсутствии `docker-compose.yml` и `mailu.env` в `/opt/mailu` скрипт сам генерирует их из тех же шаблонов (Jinja2, `setup/flavors/compose`). Шаблоны скачиваются с GitHub ([Mailu/Mailu](https://github.com/Mailu/Mailu) → `setup/flavors/compose/`). Рендер выполняет `mailu-setup-render.py` (он загружается на сервер вместе с остальными скриптами при `upload-single-machine`). Требуются `python3` и `python3-jinja2`; при необходимости они ставятся автоматически.
 
-**Установка:** задайте домен почты при установке (по умолчанию `mail.borisovai.ru`), затем `install-mailu.sh` (или шаг Mailu в `install-all.sh`) создаст конфиг, настроит порты 6555/6554 для Traefik, systemd, UFW, DNS.
+**Установка:** задайте хост веб-интерфейса при установке (по умолчанию `mail.dev.borisovai.ru`); почтовый домен для адресов — `borisovai.ru`. Затем `install-mailu.sh` (или шаг Mailu в `install-all.sh`) создаст конфиг, настроит порты 6555/6554 для Traefik, systemd, UFW, DNS.
 
 **Ручная настройка (по желанию):** откройте https://setup.mailu.io, выберите Roundcube, «за reverse proxy», порты 6555/6554, скачайте `docker-compose.yml` и `mailu.env`, положите в `/opt/mailu` — скрипт будет использовать их вместо автогенерации.
 
 **Пароли и вход в админку:**
 - При **автогенерации** конфига в `mailu.env` прописываются `INITIAL_ADMIN_ACCOUNT`, `INITIAL_ADMIN_DOMAIN`, `INITIAL_ADMIN_PASSWORD`. Пароль генерируется случайно и выводится при установке (или: `grep INITIAL_ADMIN_PASSWORD /opt/mailu/mailu.env`).
-- **Вход:** https://mail.borisovai.ru/admin — логин `admin@borisovai.ru` (или ваш домен), пароль из `INITIAL_ADMIN_PASSWORD`. Формы «создать админа» при первом входе **нет**; админ создаётся автоматически при первом старте Mailu.
+- **Вход:** https://mail.dev.borisovai.ru/admin — логин `admin@borisovai.ru` (или ваш домен), пароль из `INITIAL_ADMIN_PASSWORD`. Формы «создать админа» при первом входе **нет**; админ создаётся автоматически при первом старте Mailu.
 - Если конфиг взят с setup.mailu.io без `INITIAL_ADMIN_*`, создайте админа вручную:  
   `docker compose -f /opt/mailu/docker-compose.yml --env-file /opt/mailu/mailu.env exec admin flask mailu user admin borisovai.ru 'ваш_пароль'`, затем через config-update задайте `global_admin: true` ([документация](https://mailu.io/master/cli.html)).
 - **Почтовые ящики:** пароль задаётся при создании (Mailboxes > Add mailbox).
 
 **После установки:**
-1. Войдите в админку: https://mail.borisovai.ru/admin (`admin@<ваш_домен>` + пароль из `mailu.env`).
+1. Войдите в админку: https://mail.dev.borisovai.ru/admin (`admin@borisovai.ru` + пароль из `mailu.env`).
 2. Создайте домен: Mail domains > Add domain (например, borisovai.ru).
 3. Создайте почтовые ящики: Mailboxes > Add mailbox.
 4. Добавьте DNS записи (MX, SPF, DKIM, DMARC) — подсказки в админке.
@@ -215,12 +215,15 @@ systemctl restart management-ui
 2. Нажмите "Добавить сервис"
 3. Заполните форму и нажмите "Создать"
 
-### Через командную строку
+### Через API
 
-Используйте скрипт из `scripts/vm1-traefik/deploy-service.sh`:
 ```bash
-sudo ./deploy-service.sh <service-name> 127.0.0.1 <port> [domain]
+curl -b cookies.txt -X POST http://127.0.0.1:3000/api/services \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-app", "domain": "my-app.example.com", "backendHost": "127.0.0.1", "backendPort": 4010}'
 ```
+
+Подробнее: [docs/AGENT_SERVICES.md](docs/AGENT_SERVICES.md)
 
 ## Решение проблем
 
@@ -347,6 +350,8 @@ systemctl restart mailu
 
 ## Полезные ссылки
 
+- [docs/REMOTE_WORK.md](docs/REMOTE_WORK.md) — работа с сервером через Remote-SSH и работа агентов на удалённой машине
+- [config/single-machine/ssh-config.example](config/single-machine/ssh-config.example) — пример SSH конфига
 - [GitLab Documentation](https://docs.gitlab.com/)
 - [n8n Documentation](https://docs.n8n.io/)
 - [Traefik Documentation](https://doc.traefik.io/traefik/)

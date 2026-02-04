@@ -158,13 +158,18 @@ load_install_config() {
     fi
 }
 
+# Удаление \r и обрезка пробелов (защита от CRLF и непечатаемых символов)
+_sanitize_value() {
+    sed 's/\r//g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
 get_config_value() {
     local key="$1"
+    local val=""
     if [ -f "$INSTALL_CONFIG_FILE" ]; then
-        grep -o "\"$key\": \"[^\"]*\"" "$INSTALL_CONFIG_FILE" 2>/dev/null | cut -d'"' -f4 || echo ""
-    else
-        echo ""
+        val=$(grep -o "\"$key\": \"[^\"]*\"" "$INSTALL_CONFIG_FILE" 2>/dev/null | cut -d'"' -f4)
     fi
+    echo "$val" | _sanitize_value
 }
 
 save_config_value() {
@@ -173,8 +178,8 @@ save_config_value() {
     
     mkdir -p "$(dirname "$INSTALL_CONFIG_FILE")"
     
-    # Экранируем специальные символы в значении для JSON
-    value=$(echo "$value" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+    # Убираем \r и лишние пробелы, затем экранируем для JSON
+    value=$(echo "$value" | _sanitize_value | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
     
     if [ ! -f "$INSTALL_CONFIG_FILE" ]; then
         printf "{\n  \"%s\": \"%s\"\n}\n" "$key" "$value" > "$INSTALL_CONFIG_FILE"
@@ -257,6 +262,99 @@ prompt_choice_and_save() {
     else
         echo ""
     fi
+}
+
+# Функции для работы с базовыми доменами (несколько DNS адресов для сервисов)
+# base_domains хранится в конфиге как строка через запятую: "borisovai.ru,borisovai.tech"
+
+get_base_domains() {
+    local raw
+    raw=$(get_config_value "base_domains")
+    if [ -z "$raw" ]; then
+        return 1
+    fi
+    echo "$raw" | tr -d '\r' | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$'
+}
+
+save_base_domains() {
+    local domains="$1"
+    local normalized
+    normalized=$(echo "$domains" | tr '\n' ',' | tr -s ',' ',' | sed 's/^,//;s/,$//')
+    save_config_value "base_domains" "$normalized"
+}
+
+# Строит полные домены для сервиса: prefix [+ middle.] + каждый базовый домен
+# Использование: build_service_domains "gitlab" -> gitlab.borisovai.ru, gitlab.borisovai.tech
+#               build_service_domains "gitlab" "dev" -> gitlab.dev.borisovai.ru, gitlab.dev.borisovai.tech
+# При prefix="" возвращает apex-домены: borisovai.ru, borisovai.tech
+build_service_domains() {
+    local prefix="$1"
+    local middle="${2:-}"
+    local base
+    if [ -z "$(get_config_value "base_domains")" ]; then
+        return 1
+    fi
+    while IFS= read -r base; do
+        [ -z "$base" ] && continue
+        if [ -z "$prefix" ]; then
+            echo "$base"
+        elif [ -n "$middle" ]; then
+            echo "${prefix}.${middle}.${base}"
+        else
+            echo "${prefix}.${base}"
+        fi
+    done < <(get_base_domains)
+}
+
+# Создаёт DNS записи для всех доменов сервиса (prefix + base_domains)
+# Использование: create_dns_records_for_domains "gitlab" [ip]
+# Если ip не передан, определяется автоматически
+create_dns_records_for_domains() {
+    local prefix="$1"
+    local ip="${2:-}"
+    local full_domain base
+    if [ -z "$prefix" ]; then
+        return 0
+    fi
+    if [ -z "$ip" ]; then
+        ip=$(curl -s ifconfig.me 2>/dev/null || curl -s ifconfig.co 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+    if [ -z "$ip" ]; then
+        echo "  [Предупреждение] Не удалось определить IP для DNS записей"
+        return 1
+    fi
+    if ! command -v curl &>/dev/null; then
+        echo "  [Предупреждение] curl не найден, пропуск создания DNS записей"
+        return 1
+    fi
+    local records_json=""
+    local first=1
+    while IFS= read -r full_domain; do
+        [ -z "$full_domain" ] && continue
+        base="${full_domain#$prefix.}"
+        if [ -n "$records_json" ]; then
+            records_json="${records_json},"
+        fi
+        records_json="${records_json}{\"subdomain\":\"${prefix}\",\"domain\":\"${base}\",\"ip\":\"${ip}\"}"
+    done < <(build_service_domains "$prefix")
+    if [ -z "$records_json" ]; then
+        return 0
+    fi
+    if curl -s -X POST -H "Content-Type: application/json" -d "{\"records\":[${records_json}]}" \
+        "http://127.0.0.1:5353/api/records/bulk" 2>/dev/null | grep -q '"records"'; then
+        echo "  [OK] DNS записи созданы для $prefix (через bulk API)"
+        return 0
+    fi
+    while IFS= read -r full_domain; do
+        [ -z "$full_domain" ] && continue
+        base="${full_domain#$prefix.}"
+        if curl -s -X POST -H "Content-Type: application/json" \
+            -d "{\"subdomain\":\"${prefix}\",\"domain\":\"${base}\",\"ip\":\"${ip}\"}" \
+            "http://127.0.0.1:5353/api/records" 2>/dev/null | grep -q '"record"'; then
+            echo "  [OK] $full_domain"
+        fi
+    done < <(build_service_domains "$prefix")
+    return 0
 }
 
 # Обработка ошибок (для использования с trap)

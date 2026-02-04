@@ -1,0 +1,6 @@
+{
+    "name": "mailu/calendar_link",
+    "description": "Adds a Calendar button (link to CalDAV/CardDAV) in Roundcube taskbar",
+    "type": "roundcube-plugin",
+    "license": "MIT"
+}

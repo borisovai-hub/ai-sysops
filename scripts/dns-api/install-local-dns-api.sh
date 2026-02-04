@@ -16,7 +16,7 @@ echo ""
 if ! command -v node &> /dev/null; then
     echo "[1/5] Установка Node.js..."
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt install -y nodejs
+    apt-get install -y nodejs
 else
     echo "[1/5] Node.js уже установлен: $(node --version)"
 fi

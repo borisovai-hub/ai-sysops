@@ -44,12 +44,20 @@ sudo ../install/scripts/single-machine/install-all.sh
 │       ├── install-gitlab.sh
 │       ├── install-n8n.sh
 │       ├── install-management-ui.sh
+│       ├── install-gitlab-runner.sh
+│       ├── setup-cicd.sh
+│       ├── configure-traefik-deploy.sh
 │       ├── setup-dns-api.sh
 │       └── configure-traefik.sh
-└── management-ui/
-    ├── server.js
-    ├── package.json
-    └── public/
+├── management-ui/
+│   ├── server.js
+│   ├── package.json
+│   └── public/
+└── config/
+    └── single-machine/
+        └── cicd/
+            ├── .env.frontend.example
+            └── .env.backend.example
 ```
 
 ### Поиск management-ui
@@ -60,3 +68,13 @@ sudo ../install/scripts/single-machine/install-all.sh
 ```bash
 sudo ./install-management-ui.sh /custom/path/to/project/root
 ```
+
+## CI/CD настройка
+
+Для настройки автоматического деплоя проектов через GitLab CI/CD:
+
+📖 **[README_CI_CD.md](README_CI_CD.md)** - Полная документация по настройке CI/CD
+
+Кратко:
+1. Запустите `install-all.sh` и выберите настройку CI/CD
+2. Или вручную: `install-gitlab-runner.sh` → `setup-cicd.sh` → `configure-traefik-deploy.sh`

@@ -263,6 +263,11 @@ AUTH_EOF
             echo "  Установка локального DNS API сервера..."
             echo "  Найден скрипт: $DNS_API_SCRIPT_DIR/install-local-dns-api.sh"
             bash "$DNS_API_SCRIPT_DIR/install-local-dns-api.sh"
+            if [ -f "$DNS_API_SCRIPT_DIR/update-dnsmasq.sh" ]; then
+                cp "$DNS_API_SCRIPT_DIR/update-dnsmasq.sh" /usr/local/bin/update-dnsmasq.sh
+                chmod +x /usr/local/bin/update-dnsmasq.sh
+                echo "  update-dnsmasq.sh установлен в /usr/local/bin (для обновления dnsmasq при создании записей через API)"
+            fi
         else
             echo "  Предупреждение: Скрипт установки локального DNS API не найден"
             echo "  Проверенные пути:"
@@ -286,8 +291,8 @@ esac
 echo ""
 echo "Установка зависимостей..."
 export DEBIAN_FRONTEND=noninteractive
-apt update
-apt install -y curl jq
+apt-get update
+apt-get install -y curl jq
 
 # Создание простого скрипта управления DNS
 echo ""

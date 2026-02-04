@@ -85,8 +85,8 @@ echo ""
 # Установка wget если не установлен
 if ! command -v wget &> /dev/null; then
     export DEBIAN_FRONTEND=noninteractive
-    apt update
-    apt install -y wget
+    apt-get update
+    apt-get install -y wget
 fi
 
 # Остановка существующего Traefik если переустанавливаем
@@ -177,8 +177,9 @@ if [ "$FORCE_MODE" = true ] || [ ! -f "$CONFIG_DIR/traefik.yml" ]; then
         cp "$CONFIG_DIR/traefik.yml" "$CONFIG_DIR/traefik.yml.backup.$(date +%Y%m%d_%H%M%S)"
     fi
     cat > "$CONFIG_DIR/traefik.yml" << EOF
+# Логи INF про "Stats collection is disabled" и "data-collection" — нормальны, телеметрия отключена
 global:
-  checkNewVersion: true
+  checkNewVersion: false
   sendAnonymousUsage: false
 
 api:

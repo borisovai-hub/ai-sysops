@@ -1,50 +1,54 @@
 # BorisovAI Admin
 
-Автоматизированная система для развертывания и управления сервисами (GitLab, Traefik, n8n) на одной машине или в среде Proxmox.
+Автоматизированная система для развертывания и управления сервисами (GitLab, Traefik, n8n, Mailu) на одной машине.
 
 ## Быстрый старт
 
-### Установка на одну машину
+**[README_SINGLE_MACHINE.md](README_SINGLE_MACHINE.md)** - Полная инструкция по установке
 
-Для установки всех сервисов на одной физической машине:
+## Документация
 
-📖 **[README_SINGLE_MACHINE.md](README_SINGLE_MACHINE.md)** - Полная инструкция по установке на одну машину
+### Установка и настройка
 
-### Установка на Proxmox
+- **[docs/INSTALLATION.md](docs/INSTALLATION.md)** - Инструкция по установке (Proxmox)
+- **[docs/PROXMOX_SETUP.md](docs/PROXMOX_SETUP.md)** - Настройка Proxmox VE 7
+- **[docs/QUICK_START_GUIDE.md](docs/QUICK_START_GUIDE.md)** - Быстрое руководство
+- **[docs/REMOTE_WORK.md](docs/REMOTE_WORK.md)** - Работа с сервером через Remote-SSH
 
-Для установки в виртуальной среде Proxmox:
+### Инструкции для агентов
 
-📖 **[INSTALLATION.md](INSTALLATION.md)** - Инструкция по установке на Proxmox  
-📖 **[PROXMOX_SETUP.md](PROXMOX_SETUP.md)** - Настройка Proxmox VE 7  
-📖 **[QUICK_START_GUIDE.md](QUICK_START_GUIDE.md)** - Быстрое руководство
+- **[docs/AGENT_ORCHESTRATOR.md](docs/AGENT_ORCHESTRATOR.md)** - Регистрация проектов (One-Click Publish)
+- **[docs/AGENT_GITOPS.md](docs/AGENT_GITOPS.md)** - CI/CD деплой borisovai-admin
+- **[docs/AGENT_SERVICES.md](docs/AGENT_SERVICES.md)** - Управление сервисами и DNS
+- **[docs/AGENT_API_GUIDE.md](docs/AGENT_API_GUIDE.md)** - Публикация контента через Strapi API
+- **[docs/AGENT_PUBLISH_SETUP.md](docs/AGENT_PUBLISH_SETUP.md)** - Настройка деплоя borisovai-site
 
-## Дополнительные инструкции
+### Прочее
 
-- **[POWERSHELL_SETUP.md](POWERSHELL_SETUP.md)** - Настройка PowerShell для запуска скриптов
-- **[POWERSHELL_ENCODING.md](POWERSHELL_ENCODING.md)** - Решение проблем с кодировкой в PowerShell
-- **[INSTALL_SSH_COPY_ID.md](INSTALL_SSH_COPY_ID.md)** - Установка ssh-copy-id для Git Bash
-- **[UPLOAD_EXAMPLES.md](UPLOAD_EXAMPLES.md)** - Примеры использования скриптов загрузки
-- **[VSCODE_FIX.md](VSCODE_FIX.md)** - Исправление ошибки ICU в Visual Studio Code
-
-## Дополнительные инструменты
-
-- **[windows-install/](windows-install/)** - Скрипты для установки Windows на VPS Contabo
-
-## История изменений
-
-- **[CHANGELOG_SINGLE_MACHINE.md](CHANGELOG_SINGLE_MACHINE.md)** - История изменений скриптов для установки на одну машину
+- **[docs/POWERSHELL_SETUP.md](docs/POWERSHELL_SETUP.md)** - Настройка PowerShell
+- **[docs/POWERSHELL_ENCODING.md](docs/POWERSHELL_ENCODING.md)** - Проблемы с кодировкой PowerShell
+- **[docs/INSTALL_SSH_COPY_ID.md](docs/INSTALL_SSH_COPY_ID.md)** - Установка ssh-copy-id
+- **[docs/UPLOAD_EXAMPLES.md](docs/UPLOAD_EXAMPLES.md)** - Примеры скриптов загрузки
+- **[docs/VSCODE_FIX.md](docs/VSCODE_FIX.md)** - Исправление ошибки ICU в VS Code
+- **[docs/CHANGELOG_SINGLE_MACHINE.md](docs/CHANGELOG_SINGLE_MACHINE.md)** - История изменений
 
 ## Структура проекта
 
 ```
 borisovai-admin/
-├── scripts/              # Скрипты установки
-│   ├── single-machine/   # Установка на одну машину
-│   ├── vm1-traefik/      # Скрипты для Traefik VM
-│   └── vm2-gitlab/       # Скрипты для GitLab VM
-├── config/               # Конфигурационные файлы
-├── management-ui/        # Веб-интерфейс управления
-└── windows-install/      # Скрипты для установки Windows
+├── .gitlab-ci.yml            # CI/CD pipeline (validate → deploy → verify)
+├── management-ui/            # Веб-интерфейс управления (Express.js)
+│   ├── server.js             # API сервер
+│   ├── public/               # UI страницы (index, dns, projects)
+│   └── templates/            # CI-шаблоны для целевых проектов
+├── scripts/
+│   ├── single-machine/       # Скрипты установки на сервер
+│   ├── dns-api/              # DNS API сервер (dnsmasq)
+│   ├── ci/                   # CI/CD скрипты деплоя
+│   └── upload-single-machine.*  # Ручная загрузка на сервер
+├── config/
+│   └── single-machine/       # Шаблоны конфигов (GitOps)
+└── docs/                     # Документация и инструкции
 ```
 
 ## Лицензия

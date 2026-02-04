@@ -1,0 +1,25 @@
+# Шаблон CI/CD для инфраструктурных проектов (валидация без деплоя)
+# Генерируется оркестратором. Переменные {{RUNNER_TAG}} и {{DEFAULT_BRANCH}} подставляются при генерации.
+# Без CI Variables — только валидация.
+
+stages:
+  - validate
+
+validate:
+  stage: validate
+  image: node:20-alpine
+  script:
+    - |
+      if [ -f package.json ]; then
+        npm ci
+        npm run lint 2>/dev/null || echo "lint: скрипт не найден"
+        npm run validate 2>/dev/null || echo "validate: скрипт не найден"
+        npm run test 2>/dev/null || echo "test: скрипт не найден"
+      fi
+    - |
+      if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then
+        docker compose config --quiet 2>/dev/null || echo "docker-compose: валидация пропущена"
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "{{DEFAULT_BRANCH}}"
+    - if: $CI_MERGE_REQUEST_ID

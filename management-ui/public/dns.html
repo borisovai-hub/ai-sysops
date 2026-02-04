@@ -215,6 +215,7 @@
             <div class="nav-links">
                 <a href="/">Управление сервисами</a>
                 <a href="/dns.html" style="font-weight: bold;">Управление DNS</a>
+                <a href="/projects.html">Проекты</a>
             </div>
         </header>
         
@@ -258,13 +259,17 @@
             <span class="close" onclick="closeRecordModal()">&times;</span>
             <h2 id="modal-title">Добавить DNS запись</h2>
             <form id="record-form" onsubmit="saveRecord(event)">
+                <div class="form-group" id="edit-domain-hint" style="display: none;">
+                    <label>Текущая запись:</label>
+                    <p id="edit-full-domain" style="margin: 4px 0; color: #666;"></p>
+                </div>
                 <div class="form-group">
                     <label>Поддомен:</label>
                     <input type="text" id="subdomain" name="subdomain" required placeholder="gitlab">
                 </div>
                 <div class="form-group">
                     <label>IP адрес:</label>
-                    <input type="text" id="ip" name="ip" required placeholder="192.168.1.100" pattern="^([0-9]{1,3}\.){3}[0-9]{1,3}$">
+                    <input type="text" id="ip" name="ip" required placeholder="192.168.1.100" title="IPv4, например 192.168.1.100">
                 </div>
                 <input type="hidden" id="record-id" name="id">
                 <div style="margin-top: 20px;">
@@ -407,9 +412,11 @@
             
             document.getElementById('modal-title').textContent = 'Редактировать DNS запись';
             document.getElementById('record-id').value = record.id;
-            document.getElementById('subdomain').value = record.subdomain;
-            document.getElementById('ip').value = record.ip;
-            document.getElementById('subdomain').disabled = true; // Поддомен нельзя менять
+            document.getElementById('subdomain').value = record.subdomain || '';
+            document.getElementById('ip').value = record.ip || '';
+            document.getElementById('subdomain').disabled = false;
+            document.getElementById('edit-domain-hint').style.display = 'block';
+            document.getElementById('edit-full-domain').textContent = record.full_domain || (record.subdomain + '.' + (record.domain || ''));
             openRecordModal();
         }
         
@@ -441,6 +448,7 @@
             document.getElementById('record-form').reset();
             document.getElementById('record-id').value = '';
             document.getElementById('subdomain').disabled = false;
+            document.getElementById('edit-domain-hint').style.display = 'none';
             openRecordModal();
         }
         
@@ -452,6 +460,8 @@
             document.getElementById('recordModal').style.display = 'none';
             document.getElementById('record-form').reset();
             document.getElementById('record-id').value = '';
+            document.getElementById('edit-domain-hint').style.display = 'none';
+            document.getElementById('subdomain').disabled = false;
         }
         
         // Показ уведомлений

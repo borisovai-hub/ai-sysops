@@ -1,0 +1,10 @@
+{
+  "gitlab_url": "{{GITLAB_URL}}",
+  "gitlab_token": "{{GITLAB_TOKEN}}",
+  "strapi_url": "{{STRAPI_URL}}",
+  "strapi_token": "{{STRAPI_TOKEN}}",
+  "base_port": 4010,
+  "runner_tag": "deploy-production",
+  "main_site_path": "/var/www/borisovai-site",
+  "deploy_base_path": "/var/www"
+}

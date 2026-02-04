@@ -1,0 +1,71 @@
+# Шаблон CI/CD для продуктов — сборка артефактов и обновление продуктовой страницы
+# Генерируется оркестратором. Переменные {{RUNNER_TAG}} и {{DEFAULT_BRANCH}} подставляются при генерации.
+# CI Variables: DOWNLOADS_PATH, PROJECT_SLUG, STRAPI_API_URL, STRAPI_API_TOKEN
+#
+# Триггер: создание тега вида v* (например v1.0.0)
+
+stages:
+  - build
+  - publish
+
+variables:
+  NODE_VERSION: "20"
+
+build:artifacts:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  script:
+    - |
+      if [ -f package.json ]; then
+        npm ci
+        npm run build
+      fi
+  artifacts:
+    paths:
+      - dist/
+      - build/
+      - out/
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+
+publish:
+  stage: publish
+  tags:
+    - {{RUNNER_TAG}}
+  dependencies:
+    - build:artifacts
+  script:
+    # Копирование артефактов в директорию для скачивания
+    - mkdir -p $DOWNLOADS_PATH
+    - |
+      if [ -d "dist" ]; then
+        cp -r dist/* $DOWNLOADS_PATH/ 2>/dev/null || true
+      elif [ -d "build" ]; then
+        cp -r build/* $DOWNLOADS_PATH/ 2>/dev/null || true
+      elif [ -d "out" ]; then
+        cp -r out/* $DOWNLOADS_PATH/ 2>/dev/null || true
+      fi
+    # Обновление записи в Strapi — версия и ссылка на скачивание
+    - |
+      if [ -n "$STRAPI_API_URL" ] && [ -n "$STRAPI_API_TOKEN" ] && [ -n "$PROJECT_SLUG" ]; then
+        echo "Обновление Strapi: версия $CI_COMMIT_TAG для проекта $PROJECT_SLUG"
+        STRAPI_PROJECT_ID=$(curl -s \
+          -H "Authorization: Bearer $STRAPI_API_TOKEN" \
+          "$STRAPI_API_URL/api/projects?filters[slug][\$eq]=$PROJECT_SLUG" | \
+          python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data'][0]['id'] if d.get('data') else '')" 2>/dev/null)
+        if [ -n "$STRAPI_PROJECT_ID" ] && [ "$STRAPI_PROJECT_ID" != "" ]; then
+          curl -s -X PUT \
+            -H "Authorization: Bearer $STRAPI_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"data\":{\"version\":\"$CI_COMMIT_TAG\",\"downloadUrl\":\"/downloads/$PROJECT_SLUG/\"}}" \
+            "$STRAPI_API_URL/api/projects/$STRAPI_PROJECT_ID"
+          echo "Strapi обновлён: проект #$STRAPI_PROJECT_ID, версия $CI_COMMIT_TAG"
+        else
+          echo "Предупреждение: проект $PROJECT_SLUG не найден в Strapi"
+        fi
+      else
+        echo "Strapi: переменные не заданы, пропуск обновления"
+      fi
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/

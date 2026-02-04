@@ -86,17 +86,27 @@ for arg in "$@"; do
 done
 
 if [ -z "$GITLAB_DOMAIN" ]; then
-    # Пытаемся загрузить из сохраненной конфигурации
-    GITLAB_DOMAIN=$(get_config_value "gitlab_domain")
-    
-    if [ -z "$GITLAB_DOMAIN" ]; then
-        GITLAB_DOMAIN=$(prompt_and_save "gitlab_domain" "Введите домен для GitLab (например, gitlab.example.com)")
+    if [ -n "$(get_config_value "base_domains")" ]; then
+        GITLAB_PREFIX=$(get_config_value "gitlab_prefix")
+        [ -z "$GITLAB_PREFIX" ] && GITLAB_PREFIX="gitlab"
+        save_config_value "gitlab_prefix" "$GITLAB_PREFIX"
+        GITLAB_DOMAIN=$(build_service_domains "$GITLAB_PREFIX" | head -1)
         if [ -z "$GITLAB_DOMAIN" ]; then
-            echo "Ошибка: Домен обязателен"
+            echo "Ошибка: Не удалось получить домен из base_domains"
             exit 1
         fi
+        echo "Используются базовые домены, основной домен GitLab: $GITLAB_DOMAIN"
     else
-        echo "Используется сохраненный домен GitLab: $GITLAB_DOMAIN"
+        GITLAB_DOMAIN=$(get_config_value "gitlab_domain")
+        if [ -z "$GITLAB_DOMAIN" ]; then
+            GITLAB_DOMAIN=$(prompt_and_save "gitlab_domain" "Введите домен для GitLab (например, gitlab.example.com)")
+            if [ -z "$GITLAB_DOMAIN" ]; then
+                echo "Ошибка: Домен обязателен"
+                exit 1
+            fi
+        else
+            echo "Используется сохраненный домен GitLab: $GITLAB_DOMAIN"
+        fi
     fi
 fi
 
@@ -143,8 +153,8 @@ if [ "$FORCE_MODE" = true ] && [ "$RECONFIGURE_MODE" != true ]; then
     
     if is_package_installed "gitlab-ce"; then
         echo "  Удаление GitLab CE..."
-        apt remove --purge -y gitlab-ce
-        apt autoremove -y
+        apt-get remove --purge -y gitlab-ce
+        apt-get autoremove -y
     fi
     
     # Удаление данных GitLab (опционально, с подтверждением)
@@ -171,7 +181,7 @@ if [ "$FORCE_MODE" = true ] && [ "$RECONFIGURE_MODE" != true ]; then
     if [ -f /etc/apt/sources.list.d/gitlab_gitlab-ce.list ]; then
         rm -f /etc/apt/sources.list.d/gitlab_gitlab-ce.list
     fi
-    apt update
+    apt-get update
 elif is_package_installed "gitlab-ce" || is_service_installed "gitlab-runsvdir"; then
     if [ "$RECONFIGURE_MODE" != true ]; then
         echo "  [Пропуск] GitLab уже установлен"
@@ -214,13 +224,13 @@ if [ "$SKIP_INSTALL" != true ]; then
     echo ""
     echo "[2/7] Обновление системы..."
     export DEBIAN_FRONTEND=noninteractive
-    apt update
-    apt upgrade -y
+    apt-get update
+    apt-get upgrade -y
 
     # Установка зависимостей
     echo ""
     echo "[3/7] Установка зависимостей..."
-    apt install -y curl openssh-server ca-certificates tzdata perl
+    apt-get install -y curl openssh-server ca-certificates tzdata perl
 
     # Настройка firewall (GitLab будет доступен только через Traefik на localhost)
     echo ""
@@ -246,7 +256,7 @@ if [ "$SKIP_INSTALL" != true ]; then
     echo ""
     echo "[6/7] Установка GitLab CE (это может занять несколько минут)..."
     if ! is_package_installed "gitlab-ce" || [ "$FORCE_MODE" = true ]; then
-        apt install -y gitlab-ce
+        apt-get install -y gitlab-ce
         if [ $? -ne 0 ]; then
             echo "Ошибка: Не удалось установить GitLab"
             exit 1
@@ -351,6 +361,10 @@ if ! grep -q "nginx\['listen_addresses'\]" "$GITLAB_CONFIG" || [ "$FORCE_MODE" =
 nginx['listen_port'] = 8888
 nginx['listen_https'] = false
 nginx['listen_addresses'] = ['127.0.0.1']
+
+# Отключение SSL в nginx (SSL терминируется на Traefik)
+nginx['ssl'] = false
+nginx['redirect_http_to_https'] = false
 nginx['proxy_set_headers'] = {
   "Host" => "\$http_host",
   "X-Real-IP" => "\$remote_addr",
@@ -370,6 +384,24 @@ gitlab_rails['trusted_proxies'] = ['127.0.0.1']
 
 # Отключение встроенного Let's Encrypt (используется Traefik)
 letsencrypt['enable'] = false
+
+# Настройка GitLab Pages на отдельном поддомене
+# Формируем домен pages: public.<base_domain> (например public.gitlab.dev.borisovai.ru)
+gitlab_pages['enable'] = true
+
+# Внутренний сервер GitLab (используем localhost для API запросов)
+gitlab_pages['internal_gitlab_server'] = 'http://127.0.0.1:8888'
+gitlab_pages['gitlab_server'] = 'https://${GITLAB_DOMAIN}'
+pages_external_url 'https://public.${GITLAB_DOMAIN}'
+
+# Pages за reverse proxy (Traefik) - используем listen_proxy
+gitlab_pages['listen_proxy'] = '127.0.0.1:8889'
+gitlab_pages['external_http'] = []
+gitlab_pages['external_https'] = []
+
+# Отключаем встроенный HTTPS и nginx для Pages (SSL на Traefik)
+gitlab_pages['https'] = false
+pages_nginx['enable'] = false
 EOF
     echo "  [OK] Конфигурация GitLab обновлена с настройками для работы за прокси"
 fi
@@ -449,7 +481,7 @@ check_service_status() {
 
 # Проверка критических сервисов
 echo "  Проверка критических сервисов..."
-CRITICAL_SERVICES=("puma" "nginx" "postgresql" "redis" "gitlab-workhorse")
+CRITICAL_SERVICES=("puma" "nginx" "postgresql" "redis" "gitlab-workhorse" "gitlab-pages")
 ALL_SERVICES_OK=true
 
 for service in "${CRITICAL_SERVICES[@]}"; do
@@ -604,54 +636,27 @@ if [ "$GITLAB_READY" = false ]; then
     fi
 fi
 
-# Создание DNS записи для GitLab
+# Создание DNS записей для GitLab
 echo ""
-echo "Создание DNS записи для GitLab..."
-if [ -n "$GITLAB_DOMAIN" ] && command -v manage-dns &> /dev/null; then
-    # Получение публичного IP адреса сервера
-    SERVER_IP=$(curl -s ifconfig.me || curl -s ifconfig.co || hostname -I | awk '{print $1}')
-    if [ -n "$SERVER_IP" ] && [ -n "$GITLAB_DOMAIN" ]; then
-        # Удаление протокола если есть (https:// или http://)
+echo "Создание DNS записей для GitLab..."
+if [ -n "$GITLAB_DOMAIN" ]; then
+    if [ -n "$(get_config_value "base_domains")" ]; then
+        GITLAB_PREFIX=$(get_config_value "gitlab_prefix")
+        [ -z "$GITLAB_PREFIX" ] && GITLAB_PREFIX="gitlab"
+        create_dns_records_for_domains "$GITLAB_PREFIX"
+    elif command -v manage-dns &> /dev/null; then
+        SERVER_IP=$(curl -s ifconfig.me || curl -s ifconfig.co || hostname -I | awk '{print $1}')
         CLEAN_DOMAIN=$(echo "$GITLAB_DOMAIN" | sed 's|^https\?://||')
-        
-        # Извлечение поддомена из полного домена (например, gitlab из gitlab.example.com)
-        # Если домен содержит точку, берем первую часть как поддомен
-        if echo "$CLEAN_DOMAIN" | grep -q '\.'; then
+        if [ -n "$SERVER_IP" ] && echo "$CLEAN_DOMAIN" | grep -q '\.'; then
             SUBDOMAIN=$(echo "$CLEAN_DOMAIN" | cut -d'.' -f1)
             DOMAIN=$(echo "$CLEAN_DOMAIN" | cut -d'.' -f2-)
-        else
-            # Если точка не найдена, используем весь домен как поддомен
-            SUBDOMAIN="$CLEAN_DOMAIN"
-            DOMAIN=""
-        fi
-        
-        # Проверка что поддомен и домен не пустые и не содержат служебные значения
-        if [ -n "$SUBDOMAIN" ] && [ -n "$DOMAIN" ] && [ "$SUBDOMAIN" != "--force" ] && [ "$DOMAIN" != "null" ] && [ "$SUBDOMAIN" != "null" ]; then
-            echo "  Создание DNS записи: $SUBDOMAIN.$DOMAIN -> $SERVER_IP"
-            if manage-dns create "$SUBDOMAIN" "$SERVER_IP" 2>/dev/null; then
-                echo "  [OK] DNS запись создана"
-            else
-                echo "  [Предупреждение] Не удалось создать DNS запись автоматически"
-                echo "  Создайте запись вручную: manage-dns create $SUBDOMAIN $SERVER_IP"
+            if [ -n "$SUBDOMAIN" ] && [ -n "$DOMAIN" ]; then
+                echo "  Создание DNS записи: $SUBDOMAIN.$DOMAIN -> $SERVER_IP"
+                manage-dns create "$SUBDOMAIN" "$SERVER_IP" 2>/dev/null || echo "  [Предупреждение] Не удалось создать DNS запись"
             fi
-        else
-            echo "  [Предупреждение] Не удалось корректно извлечь поддомен и домен из: $GITLAB_DOMAIN"
-            echo "  Создайте DNS запись вручную для домена: $GITLAB_DOMAIN"
         fi
     else
-        if [ -z "$SERVER_IP" ]; then
-            echo "  [Предупреждение] Не удалось определить IP адрес сервера"
-        fi
-        if [ -z "$GITLAB_DOMAIN" ]; then
-            echo "  [Предупреждение] Домен GitLab не установлен"
-        fi
-    fi
-else
-    if [ -z "$GITLAB_DOMAIN" ]; then
-        echo "  [Предупреждение] Домен GitLab не установлен, пропуск создания DNS записи"
-    elif [ ! -x "$(command -v manage-dns)" ]; then
-        echo "  [Предупреждение] Скрипт manage-dns не найден"
-        echo "  Создайте DNS запись вручную для домена: $GITLAB_DOMAIN"
+        echo "  [Предупреждение] Скрипт manage-dns не найден, создайте DNS запись вручную для $GITLAB_DOMAIN"
     fi
 fi
 
@@ -677,7 +682,11 @@ echo "Проверка конфигурации Traefik:"
 echo "  Убедитесь, что Traefik настроен для GitLab:"
 echo "    sudo cat /etc/traefik/dynamic/gitlab.yml"
 echo "  Если конфигурация отсутствует, запустите:"
-echo "    sudo $SCRIPT_DIR/../configure-traefik.sh $GITLAB_DOMAIN <n8n-domain> <ui-domain>"
+if [ -n "$(get_config_value "base_domains")" ]; then
+echo "    sudo $SCRIPT_DIR/configure-traefik.sh   # использует base_domains"
+else
+echo "    sudo $SCRIPT_DIR/configure-traefik.sh $GITLAB_DOMAIN <n8n-domain> <ui-domain>"
+fi
 echo ""
 echo "Проверка DNS записи:"
 echo "  nslookup ${GITLAB_DOMAIN}"
@@ -686,4 +695,25 @@ echo ""
 echo "Проверка статуса сервисов:"
 echo "  gitlab-ctl status"
 echo "  systemctl status traefik"
+echo ""
+echo "GitLab Pages:"
+echo "  Pages включены и настроены на: https://public.${GITLAB_DOMAIN}"
+echo "  Для использования Pages:"
+echo "    1. Создайте репозиторий с .gitlab-ci.yml"
+echo "    2. Добавьте job с артефактами в папку public/"
+echo "    3. Страницы будут доступны по адресу: https://public.${GITLAB_DOMAIN}/<namespace>/<project>"
+echo ""
+echo "  Не забудьте:"
+echo "    1. Добавить DNS запись для public.${GITLAB_DOMAIN}"
+echo "    2. Настроить Traefik: sudo $SCRIPT_DIR/configure-traefik.sh --force"
+echo ""
+echo "  Если Pages не работают, проверьте:"
+echo "    gitlab-ctl status gitlab-pages"
+echo "    gitlab-ctl tail gitlab-pages"
+echo ""
+echo "  Для изменения домена Pages отредактируйте /etc/gitlab/gitlab.rb:"
+echo "    pages_external_url 'https://pages.example.com'"
+echo "  И выполните:"
+echo "    sudo gitlab-ctl reconfigure"
+echo "    sudo gitlab-ctl restart gitlab-pages"
 echo ""

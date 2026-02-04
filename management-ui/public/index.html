@@ -192,6 +192,11 @@
                     <button class="btn" onclick="logout()" style="background: #95a5a6;">Выход</button>
                 </div>
             </div>
+            <div class="nav-links" style="display: flex; gap: 15px; margin-top: 10px;">
+                <a href="/" style="font-weight: bold; color: #3498db; text-decoration: none; padding: 5px 10px; border-radius: 4px;">Управление сервисами</a>
+                <a href="/dns.html" style="color: #3498db; text-decoration: none; padding: 5px 10px; border-radius: 4px;">Управление DNS</a>
+                <a href="/projects.html" style="color: #3498db; text-decoration: none; padding: 5px 10px; border-radius: 4px;">Проекты</a>
+            </div>
         </header>
         
         <div id="alert-container"></div>
@@ -252,6 +257,37 @@
             </form>
         </div>
     </div>
+
+    <!-- Modal для редактирования сервиса -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditModal()">&times;</span>
+            <h2>Редактировать сервис</h2>
+            <form id="edit-service-form" onsubmit="saveService(event)">
+                <input type="hidden" name="name" id="edit-name">
+                <div class="form-group">
+                    <label>Имя сервиса:</label>
+                    <input type="text" id="edit-name-display" disabled style="background: #eee;">
+                </div>
+                <div class="form-group">
+                    <label>Внутренний IP:</label>
+                    <input type="text" name="internalIp" id="edit-internalIp" required>
+                </div>
+                <div class="form-group">
+                    <label>Порт:</label>
+                    <input type="number" name="port" id="edit-port" required>
+                </div>
+                <div class="form-group">
+                    <label>Домен (через запятую для нескольких):</label>
+                    <input type="text" name="domain" id="edit-domain" placeholder="app1.example.com, app2.example.com">
+                </div>
+                <div style="margin-top: 20px;">
+                    <button type="submit" class="btn btn-success">Сохранить</button>
+                    <button type="button" class="btn" onclick="closeEditModal()" style="margin-left: 10px;">Отмена</button>
+                </div>
+            </form>
+        </div>
+    </div>
     
     <script>
         // Загрузка списка сервисов
@@ -265,6 +301,12 @@
             }
         }
         
+        function escapeHtml(str) {
+            if (str == null) return '';
+            const s = String(str);
+            return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
         // Отображение сервисов
         function displayServices(services) {
             const tbody = document.getElementById('services-tbody');
@@ -274,17 +316,22 @@
                 return;
             }
             
-            tbody.innerHTML = services.map(service => `
-                <tr>
-                    <td>${service.name}</td>
-                    <td><a href="https://${service.domain}" target="_blank">${service.domain}</a></td>
-                    <td>${service.internalIp}</td>
-                    <td>${service.port}</td>
+            tbody.innerHTML = services.map(service => {
+                const name = (service.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const domain = (service.domain || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const ip = (service.internalIp || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const port = (service.port || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                return `<tr>
+                    <td>${escapeHtml(service.name)}</td>
+                    <td><a href="https://${escapeHtml(service.domain)}" target="_blank">${escapeHtml(service.domain)}</a></td>
+                    <td>${escapeHtml(service.internalIp)}</td>
+                    <td>${escapeHtml(service.port)}</td>
                     <td>
-                        <button class="btn btn-danger" onclick="deleteService('${service.name}')">Удалить</button>
+                        <button class="btn" onclick="openEditModal('${name}','${domain}','${ip}','${port}')" style="margin-right: 8px;">Редактировать</button>
+                        <button class="btn btn-danger" onclick="deleteService('${name}')">Удалить</button>
                     </td>
-                </tr>
-            `).join('');
+                </tr>`;
+            }).join('');
         }
         
         // Добавление сервиса
@@ -321,20 +368,55 @@
         
         // Удаление сервиса
         async function deleteService(name) {
-            if (!confirm(`Удалить сервис "${name}"?`)) return;
-            
+            if (!confirm('Удалить сервис "' + name + '"?')) return;
             try {
-                const response = await fetch(`/api/services/${name}`, {
-                    method: 'DELETE'
-                });
-                
+                const response = await fetch('/api/services/' + encodeURIComponent(name), { method: 'DELETE' });
                 const result = await response.json();
-                
                 if (response.ok) {
                     showAlert('Сервис удален', 'success');
                     loadServices();
                 } else {
-                    showAlert('Ошибка: ' + result.error, 'error');
+                    showAlert('Ошибка: ' + (result.error || response.status), 'error');
+                }
+            } catch (error) {
+                showAlert('Ошибка: ' + error.message, 'error');
+            }
+        }
+
+        function openEditModal(name, domain, internalIp, port) {
+            document.getElementById('edit-name').value = name;
+            document.getElementById('edit-name-display').value = name;
+            document.getElementById('edit-domain').value = domain || '';
+            document.getElementById('edit-internalIp').value = internalIp || '';
+            document.getElementById('edit-port').value = port || '';
+            document.getElementById('editModal').style.display = 'block';
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').style.display = 'none';
+        }
+
+        async function saveService(event) {
+            event.preventDefault();
+            const name = document.getElementById('edit-name').value;
+            const data = {
+                internalIp: document.getElementById('edit-internalIp').value.trim(),
+                port: document.getElementById('edit-port').value.trim(),
+                domain: document.getElementById('edit-domain').value.trim() || null
+            };
+            try {
+                const response = await fetch('/api/services/' + encodeURIComponent(name), {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    showAlert('Сервис обновлён', 'success');
+                    closeEditModal();
+                    loadServices();
+                } else {
+                    showAlert('Ошибка: ' + (result.error || response.status), 'error');
                 }
             } catch (error) {
                 showAlert('Ошибка: ' + error.message, 'error');
@@ -367,10 +449,8 @@
         
         // Закрытие модального окна при клике вне его
         window.onclick = function(event) {
-            const modal = document.getElementById('addModal');
-            if (event.target == modal) {
-                closeAddModal();
-            }
+            if (event.target.id === 'addModal') closeAddModal();
+            if (event.target.id === 'editModal') closeEditModal();
         }
         
         // Проверка авторизации

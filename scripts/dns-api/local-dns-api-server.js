@@ -127,7 +127,7 @@ app.post('/api/records', async (req, res) => {
         
         // Создание новой записи
         const newRecord = {
-            id: generateUUID(),
+            id: uuidv4(),
             subdomain,
             domain,
             full_domain: `${subdomain}.${domain}`,
@@ -145,6 +145,59 @@ app.post('/api/records', async (req, res) => {
         res.status(201).json({ 
             record: newRecord,
             message: 'Запись создана'
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/records/bulk - создать или обновить несколько записей
+app.post('/api/records/bulk', async (req, res) => {
+    try {
+        const { records: inputRecords } = req.body;
+        if (!Array.isArray(inputRecords) || inputRecords.length === 0) {
+            return res.status(400).json({ error: 'Необходим массив records: [{ subdomain, domain, ip }, ...]' });
+        }
+
+        const records = await loadRecords();
+        const created = [];
+
+        for (const { subdomain, domain, ip, type = 'A', ttl = 300 } of inputRecords) {
+            if (!subdomain || !domain || !ip) continue;
+
+            const existingIndex = records.findIndex(r =>
+                r.subdomain === subdomain && r.domain === domain
+            );
+
+            if (existingIndex >= 0) {
+                records[existingIndex].ip = ip;
+                records[existingIndex].type = type;
+                records[existingIndex].ttl = ttl;
+                records[existingIndex].updated_at = new Date().toISOString();
+                created.push(records[existingIndex]);
+            } else {
+                const newRecord = {
+                    id: uuidv4(),
+                    subdomain,
+                    domain,
+                    full_domain: `${subdomain}.${domain}`,
+                    ip,
+                    type,
+                    ttl,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+                records.push(newRecord);
+                created.push(newRecord);
+            }
+        }
+
+        await saveRecords(records);
+        await updateDnsmasq(records);
+
+        res.status(201).json({
+            records: created,
+            message: `Обработано записей: ${created.length}`
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
