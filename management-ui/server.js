@@ -397,6 +397,11 @@ app.delete('/api/dns/records/:id', requireAuth, async (req, res) => {
     }
 });
 
+// Страница DNS
+app.get('/dns.html', requireAuth, (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'dns.html'));
+});
+
 // Страница входа (не требует авторизации)
 app.get('/login', (req, res) => {
     if (req.session && req.session.authenticated) {
