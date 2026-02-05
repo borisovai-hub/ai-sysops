@@ -31,8 +31,6 @@ app.use(session({
 // Middleware
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
-
 // Загрузка конфигурации
 let config = {};
 try {
@@ -95,6 +93,19 @@ function requireAuth(req, res, next) {
     }
     res.redirect('/login');
 }
+
+// Статические файлы с проверкой авторизации
+// login доступен без авторизации, остальные страницы — только после входа
+app.use((req, res, next) => {
+    if (req.path === '/login' || req.path === '/login.html') {
+        return next();
+    }
+    if (req.path.startsWith('/api/')) {
+        return next();
+    }
+    requireAuth(req, res, next);
+});
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Загрузка DNS конфигурации
 let dnsConfig = {};
@@ -386,11 +397,6 @@ app.delete('/api/dns/records/:id', requireAuth, async (req, res) => {
     }
 });
 
-// Страница DNS (dns.html)
-app.get('/dns.html', requireAuth, (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'dns.html'));
-});
-
 // Страница входа (не требует авторизации)
 app.get('/login', (req, res) => {
     if (req.session && req.session.authenticated) {
@@ -619,11 +625,6 @@ app.get('/api/traefik/status', requireAuth, async (req, res) => {
 });
 
 // ==================== Projects / Publish routes ====================
-
-// Страница проектов
-app.get('/projects.html', requireAuth, (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'projects.html'));
-});
 
 // GET /api/gitlab/projects
 app.get('/api/gitlab/projects', requireAuth, async (req, res) => {
@@ -980,12 +981,8 @@ app.put('/api/publish/projects/:slug/update-ci', requireAuth, async (req, res) =
     }
 });
 
-// Главная страница (требует авторизации). Для хоста dns.* отдаём страницу DNS
+// Главная страница (авторизация проверяется через middleware выше)
 app.get('/', requireAuth, (req, res) => {
-    const host = (req.headers.host || '').split(':')[0].toLowerCase();
-    if (host.startsWith('dns.')) {
-        return res.sendFile(path.join(__dirname, 'public', 'dns.html'));
-    }
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
