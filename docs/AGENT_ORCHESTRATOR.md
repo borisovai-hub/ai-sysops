@@ -6,10 +6,21 @@
 
 ```
 Base URL:  https://admin.borisovai.ru  (или http://127.0.0.1:3000 с сервера)
-Auth:      Cookie-based session (POST /login)
+Auth:      Bearer-токен (рекомендуется) или Cookie-сессия
 ```
 
 ## Аутентификация
+
+### Bearer-токен (рекомендуется для агентов)
+
+Токены создаются администратором в UI (страница "Токены") или через API `POST /api/auth/tokens`.
+
+```bash
+# Все запросы с заголовком Authorization
+curl -H "Authorization: Bearer <токен>" http://127.0.0.1:3000/api/publish/projects
+```
+
+### Cookie-сессия (альтернативный способ)
 
 ```bash
 # Получить сессию
@@ -23,7 +34,7 @@ curl -c cookies.txt -X POST http://127.0.0.1:3000/login \
 ## Быстрый старт: зарегистрировать проект
 
 ```bash
-curl -b cookies.txt -X POST http://127.0.0.1:3000/api/publish/projects \
+curl -H "Authorization: Bearer <токен>" -X POST http://127.0.0.1:3000/api/publish/projects \
   -H "Content-Type: application/json" \
   -d '{
     "gitlabProjectId": 5,

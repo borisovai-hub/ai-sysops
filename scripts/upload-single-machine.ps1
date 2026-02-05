@@ -108,6 +108,7 @@ $managementUiPath = "$ProjectRoot\management-ui"
 $dnsApiPath = "$ScriptDir\dns-api"
 $roundcubeCalendarLinkPath = "$ScriptDir\single-machine\roundcube-calendar-link"
 $configCicdPath = "$ProjectRoot\config\single-machine\cicd"
+$configTraefikDynamicPath = "$ProjectRoot\config\single-machine\traefik\dynamic"
 
 # Check if files exist
 Write-Host "Checking files for upload..." -ForegroundColor Yellow
@@ -141,6 +142,11 @@ if (-not (Test-Path $roundcubeCalendarLinkPath)) {
     Write-Host "  [!] single-machine/roundcube-calendar-link/ - not found (optional, for Roundcube calendar button)" -ForegroundColor Yellow
 } else {
     Write-Host "  [OK] single-machine/roundcube-calendar-link/ - found" -ForegroundColor Green
+}
+if (-not (Test-Path $configTraefikDynamicPath)) {
+    Write-Host "  [!] config/single-machine/traefik/dynamic/ - not found (optional)" -ForegroundColor Yellow
+} else {
+    Write-Host "  [OK] config/single-machine/traefik/dynamic/ - found" -ForegroundColor Green
 }
 
 if ($missingFiles.Count -gt 0) {
@@ -302,9 +308,9 @@ Write-Host ""
 $uploadOk = $true
 
 # 1. Create directory on server
-Write-Host "  1/6 Creating directories..." -ForegroundColor Gray
+Write-Host "  1/7 Creating directories..." -ForegroundColor Gray
 try {
-    if (-not (Invoke-Ssh "mkdir -p ${RemotePath}/scripts/single-machine ${RemotePath}/scripts/dns-api ${RemotePath}/config/single-machine/cicd")) {
+    if (-not (Invoke-Ssh "mkdir -p ${RemotePath}/scripts/single-machine ${RemotePath}/scripts/dns-api ${RemotePath}/config/single-machine/cicd ${RemotePath}/config/single-machine/traefik/dynamic")) {
         Write-Host "  [ERROR] SSH or mkdir failed" -ForegroundColor Red
         $uploadOk = $false
     }
@@ -436,7 +442,7 @@ Initialize-UploadCache
 
 # 2. Upload scripts
 if ($uploadOk) {
-    Write-Host "  2/6 Uploading single-machine scripts..." -ForegroundColor Gray
+    Write-Host "  2/7 Uploading single-machine scripts..." -ForegroundColor Gray
     
     if ($Force) {
         # Принудительная отправка всех файлов
@@ -501,7 +507,7 @@ if ($uploadOk) {
 
 # 3. Upload management-ui
 if ($uploadOk) {
-    Write-Host "  3/6 Uploading management-ui..." -ForegroundColor Gray
+    Write-Host "  3/7 Uploading management-ui..." -ForegroundColor Gray
     if (Test-DirectoryChanged -LocalDir $managementUiPath -RemoteDir "${RemotePath}/management-ui" -DirName "management-ui") {
         if (-not $Check) {
             $uiArgs = @()
@@ -526,7 +532,7 @@ if ($uploadOk) {
 
 # 4. Upload dns-api
 if ($uploadOk) {
-    Write-Host "  4/6 Uploading dns-api..." -ForegroundColor Gray
+    Write-Host "  4/7 Uploading dns-api..." -ForegroundColor Gray
     if (Test-DirectoryChanged -LocalDir $dnsApiPath -RemoteDir "${RemotePath}/scripts/dns-api" -DirName "dns-api") {
         if (-not $Check) {
             $dnsApiArgs = @()
@@ -552,7 +558,7 @@ if ($uploadOk) {
 # 5. Upload roundcube-calendar-link (calendar plugin for Mailu)
 if ($uploadOk) {
     if (Test-Path $roundcubeCalendarLinkPath) {
-        Write-Host "  5/6 Uploading roundcube-calendar-link (calendar plugin)..." -ForegroundColor Gray
+        Write-Host "  5/7 Uploading roundcube-calendar-link (calendar plugin)..." -ForegroundColor Gray
         if (Test-DirectoryChanged -LocalDir $roundcubeCalendarLinkPath -RemoteDir "${RemotePath}/scripts/single-machine/roundcube-calendar-link" -DirName "roundcube-calendar-link") {
             if (-not $Check) {
                 $rcArgs = @()
@@ -574,14 +580,14 @@ if ($uploadOk) {
             }
         }
     } else {
-        Write-Host "  5/6 [SKIP] roundcube-calendar-link not found (optional)" -ForegroundColor Yellow
+        Write-Host "  5/7 [SKIP] roundcube-calendar-link not found (optional)" -ForegroundColor Yellow
     }
 }
 
 # 6. Upload config/cicd
 if ($uploadOk) {
     if (Test-Path $configCicdPath) {
-        Write-Host "  6/6 Uploading config/cicd..." -ForegroundColor Gray
+        Write-Host "  6/7 Uploading config/cicd..." -ForegroundColor Gray
         if (Test-DirectoryChanged -LocalDir $configCicdPath -RemoteDir "${RemotePath}/config/single-machine/cicd" -DirName "config/cicd") {
             if (-not $Check) {
                 $configArgs = @()
@@ -603,7 +609,36 @@ if ($uploadOk) {
             }
         }
     } else {
-        Write-Host "  6/6 [SKIP] config/cicd not found (optional)" -ForegroundColor Yellow
+        Write-Host "  6/7 [SKIP] config/cicd not found (optional)" -ForegroundColor Yellow
+    }
+}
+
+# 7. Upload config/traefik/dynamic
+if ($uploadOk) {
+    if (Test-Path $configTraefikDynamicPath) {
+        Write-Host "  7/7 Uploading config/traefik/dynamic..." -ForegroundColor Gray
+        if (Test-DirectoryChanged -LocalDir $configTraefikDynamicPath -RemoteDir "${RemotePath}/config/single-machine/traefik/dynamic" -DirName "config/traefik/dynamic") {
+            if (-not $Check) {
+                $traefikArgs = @()
+                if ($UseKey) { $traefikArgs += "-i"; $traefikArgs += $KeyPath }
+                $traefikArgs += "-r"; $traefikArgs += $configTraefikDynamicPath; $traefikArgs += "${Username}@${ServerIP}:${RemotePath}/config/single-machine/traefik/"
+                try {
+                    & scp @traefikArgs
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Host "  [ERROR] config/traefik/dynamic upload failed" -ForegroundColor Red
+                        $uploadOk = $false
+                    } else {
+                        Save-DirMtimesToCache -LocalDir $configTraefikDynamicPath -CachePrefix "config/traefik/dynamic"
+                        Write-Host "  [OK] config/traefik/dynamic uploaded" -ForegroundColor Green
+                    }
+                } catch {
+                    Write-Host "  [ERROR] $_" -ForegroundColor Red
+                    $uploadOk = $false
+                }
+            }
+        }
+    } else {
+        Write-Host "  7/7 [SKIP] config/traefik/dynamic not found (optional)" -ForegroundColor Yellow
     }
 }
 

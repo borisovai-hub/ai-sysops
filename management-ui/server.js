@@ -6,6 +6,7 @@ const path = require('path');
 const axios = require('axios');
 const yaml = require('yaml');
 const { execSync } = require('child_process');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = 3000;
@@ -31,6 +32,8 @@ app.use(session({
 // Middleware
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
+
 // Загрузка конфигурации
 let config = {};
 try {
@@ -63,6 +66,11 @@ try {
     console.error('Ошибка загрузки конфигурации авторизации:', error.message);
 }
 
+// Инициализация массива токенов если отсутствует
+if (!authConfig.tokens) {
+    authConfig.tokens = [];
+}
+
 // Удаление \r и других непечатаемых символов из строк (записи в UI не должны содержать их)
 function sanitizeString(str) {
     if (str == null || typeof str !== 'string') return '';
@@ -83,9 +91,46 @@ function buildHostRule(domainStr) {
     return parts.map(d => `Host(\`${d}\`)`).join(' || ');
 }
 
-// Middleware проверки авторизации
+// Сохранение конфигурации авторизации
+function saveAuthConfig() {
+    fs.writeJsonSync(AUTH_FILE, authConfig, { spaces: 2 });
+}
+
+// Генерация криптографически безопасного токена
+function generateToken() {
+    return crypto.randomBytes(32).toString('hex');
+}
+
+// Проверка Bearer-токена (timing-safe)
+function validateBearerToken(token) {
+    if (!token || typeof token !== 'string') return null;
+    const tokenBuf = Buffer.from(token);
+    for (const entry of authConfig.tokens) {
+        const storedBuf = Buffer.from(entry.token);
+        if (tokenBuf.length === storedBuf.length && crypto.timingSafeEqual(tokenBuf, storedBuf)) {
+            return entry;
+        }
+    }
+    return null;
+}
+
+// Middleware проверки авторизации (сессия или Bearer-токен)
 function requireAuth(req, res, next) {
+    // Проверка Bearer-токена
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.slice(7);
+        const entry = validateBearerToken(token);
+        if (entry) {
+            req.authMethod = 'token';
+            req.tokenName = entry.name;
+            return next();
+        }
+        return res.status(401).json({ error: 'Недействительный токен' });
+    }
+    // Проверка сессии
     if (req.session && req.session.authenticated) {
+        req.authMethod = 'session';
         return next();
     }
     if (req.path.startsWith('/api/')) {
@@ -94,18 +139,16 @@ function requireAuth(req, res, next) {
     res.redirect('/login');
 }
 
-// Статические файлы с проверкой авторизации
-// login доступен без авторизации, остальные страницы — только после входа
-app.use((req, res, next) => {
-    if (req.path === '/login' || req.path === '/login.html') {
+// Middleware: только сессионная авторизация (для управления токенами)
+function requireSessionAuth(req, res, next) {
+    if (req.session && req.session.authenticated) {
         return next();
     }
     if (req.path.startsWith('/api/')) {
-        return next();
+        return res.status(401).json({ error: 'Требуется авторизация через сессию' });
     }
-    requireAuth(req, res, next);
-});
-app.use(express.static(path.join(__dirname, 'public')));
+    res.redirect('/login');
+}
 
 // Загрузка DNS конфигурации
 let dnsConfig = {};
@@ -439,6 +482,54 @@ app.get('/api/auth/check', (req, res) => {
         authenticated: !!(req.session && req.session.authenticated),
         username: req.session?.username || null
     });
+});
+
+// API: Список токенов (без полных значений)
+app.get('/api/auth/tokens', requireSessionAuth, (req, res) => {
+    const tokens = (authConfig.tokens || []).map(t => ({
+        id: t.id,
+        name: t.name,
+        createdAt: t.createdAt,
+        tokenPrefix: t.token.substring(0, 8) + '...'
+    }));
+    res.json({ tokens });
+});
+
+// API: Создание токена
+app.post('/api/auth/tokens', requireSessionAuth, (req, res) => {
+    const name = sanitizeString(req.body.name);
+    if (!name) {
+        return res.status(400).json({ error: 'Укажите имя токена' });
+    }
+    if (authConfig.tokens.some(t => t.name === name)) {
+        return res.status(409).json({ error: `Токен с именем "${name}" уже существует` });
+    }
+    const token = generateToken();
+    const entry = {
+        id: crypto.randomBytes(4).toString('hex'),
+        name,
+        token,
+        createdAt: new Date().toISOString()
+    };
+    authConfig.tokens.push(entry);
+    saveAuthConfig();
+    res.json({ success: true, token: entry.token, id: entry.id, name: entry.name });
+});
+
+// API: Удаление токена
+app.delete('/api/auth/tokens/:id', requireSessionAuth, (req, res) => {
+    const idx = authConfig.tokens.findIndex(t => t.id === req.params.id);
+    if (idx === -1) {
+        return res.status(404).json({ error: 'Токен не найден' });
+    }
+    const removed = authConfig.tokens.splice(idx, 1)[0];
+    saveAuthConfig();
+    res.json({ success: true, message: `Токен "${removed.name}" удалён` });
+});
+
+// Страница токенов
+app.get('/tokens.html', requireSessionAuth, (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'tokens.html'));
 });
 
 // API: Получение списка сервисов

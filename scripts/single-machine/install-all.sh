@@ -1328,6 +1328,19 @@ else
     save_install_state "$STEP_NAME" "completed"
 fi
 
+# Копирование предготовленных Traefik dynamic-конфигов (admin.yml и т.д.)
+TRAEFIK_DYNAMIC_SRC="$INSTALL_ROOT/config/single-machine/traefik/dynamic"
+TRAEFIK_DYNAMIC_DST="/etc/traefik/dynamic"
+if [ -d "$TRAEFIK_DYNAMIC_SRC" ] && [ -d "$TRAEFIK_DYNAMIC_DST" ]; then
+    echo ""
+    echo "  Копирование Traefik dynamic-конфигов..."
+    for yml_file in "$TRAEFIK_DYNAMIC_SRC"/*.yml; do
+        [ -f "$yml_file" ] || continue
+        cp "$yml_file" "$TRAEFIK_DYNAMIC_DST/"
+        echo "    [OK] $(basename "$yml_file") → $TRAEFIK_DYNAMIC_DST/"
+    done
+fi
+
 # Конфигурация Traefik для деплоя (опционально)
 if [ "$INSTALL_CICD" = "y" ]; then
     echo ""

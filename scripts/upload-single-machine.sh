@@ -128,6 +128,7 @@ FILES=(
 MANAGEMENT_UI_PATH="$PROJECT_ROOT/management-ui"
 DNS_API_PATH="$SCRIPT_DIR/dns-api"
 CONFIG_CICD_PATH="$PROJECT_ROOT/config/single-machine/cicd"
+CONFIG_TRAEFIK_DYNAMIC_PATH="$PROJECT_ROOT/config/single-machine/traefik/dynamic"
 
 echo "Проверка файлов для загрузки..."
 MISSING_FILES=0
@@ -142,6 +143,7 @@ done
 [ -d "$MANAGEMENT_UI_PATH" ] && echo "  [✓] management-ui/ - найдена" || { echo "  [X] management-ui/ - не найдена"; MISSING_FILES=1; }
 [ -d "$DNS_API_PATH" ]       && echo "  [✓] dns-api/ - найдена"       || { echo "  [X] dns-api/ - не найдена";       MISSING_FILES=1; }
 [ -d "$CONFIG_CICD_PATH" ]   && echo "  [✓] config/single-machine/cicd/ - найдена" || echo "  [!] config/single-machine/cicd/ - не найдена (опционально)"
+[ -d "$CONFIG_TRAEFIK_DYNAMIC_PATH" ] && echo "  [✓] config/single-machine/traefik/dynamic/ - найдена" || echo "  [!] config/single-machine/traefik/dynamic/ - не найдена (опционально)"
 [ -d "$SCRIPT_DIR/single-machine/roundcube-calendar-link" ] && echo "  [✓] single-machine/roundcube-calendar-link/ - найдена" || echo "  [!] single-machine/roundcube-calendar-link/ - не найдена (опционально, для кнопки календаря в Roundcube)"
 
 if [ $MISSING_FILES -eq 1 ]; then
@@ -387,14 +389,14 @@ upload_directory_if_changed() {
 }
 
 # Создание директорий на сервере
-echo "  1/6 Создание директорий..."
-if ! do_ssh "mkdir -p ${REMOTE_PATH}/scripts/single-machine ${REMOTE_PATH}/scripts/dns-api ${REMOTE_PATH}/config/single-machine/cicd"; then
+echo "  1/7 Создание директорий..."
+if ! do_ssh "mkdir -p ${REMOTE_PATH}/scripts/single-machine ${REMOTE_PATH}/scripts/dns-api ${REMOTE_PATH}/config/single-machine/cicd ${REMOTE_PATH}/config/single-machine/traefik/dynamic"; then
     echo "  [ОШИБКА] Не удалось подключиться по SSH или создать директории"
     UPLOAD_FAILED=1
 fi
 
 if [ $UPLOAD_FAILED -eq 0 ]; then
-    echo "  2/6 Загрузка скриптов single-machine..."
+    echo "  2/7 Загрузка скриптов single-machine..."
     FILES_TO_UPLOAD=()
     for file in "${FILES[@]}"; do
         if [ -f "$file" ]; then
@@ -425,7 +427,7 @@ if [ $UPLOAD_FAILED -eq 0 ]; then
 fi
 
 if [ $UPLOAD_FAILED -eq 0 ]; then
-    echo "  3/6 Загрузка management-ui..."
+    echo "  3/7 Загрузка management-ui..."
     if upload_directory_if_changed "$MANAGEMENT_UI_PATH" "${REMOTE_PATH}/management-ui" "management-ui"; then
         if [ "$CHECK_ONLY" != true ]; then
             if ! do_scp -r "$MANAGEMENT_UI_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/"; then
@@ -440,7 +442,7 @@ if [ $UPLOAD_FAILED -eq 0 ]; then
 fi
 
 if [ $UPLOAD_FAILED -eq 0 ]; then
-    echo "  4/6 Загрузка dns-api..."
+    echo "  4/7 Загрузка dns-api..."
     if upload_directory_if_changed "$DNS_API_PATH" "${REMOTE_PATH}/scripts/dns-api" "dns-api"; then
         if [ "$CHECK_ONLY" != true ]; then
             if ! do_scp -r "$DNS_API_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/scripts/"; then
@@ -457,7 +459,7 @@ fi
 ROUNDCUBE_CALENDAR_LINK="$SCRIPT_DIR/single-machine/roundcube-calendar-link"
 if [ $UPLOAD_FAILED -eq 0 ]; then
     if [ -d "$ROUNDCUBE_CALENDAR_LINK" ]; then
-        echo "  5/6 Загрузка roundcube-calendar-link (плагин календаря)..."
+        echo "  5/7 Загрузка roundcube-calendar-link (плагин календаря)..."
         if upload_directory_if_changed "$ROUNDCUBE_CALENDAR_LINK" "${REMOTE_PATH}/scripts/single-machine/roundcube-calendar-link" "roundcube-calendar-link"; then
             if [ "$CHECK_ONLY" != true ]; then
                 if ! do_scp -r "$ROUNDCUBE_CALENDAR_LINK" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/scripts/single-machine/"; then
@@ -470,12 +472,12 @@ if [ $UPLOAD_FAILED -eq 0 ]; then
             fi
         fi
     else
-        echo "  5/6 [Пропуск] roundcube-calendar-link не найдена (опционально)"
+        echo "  5/7 [Пропуск] roundcube-calendar-link не найдена (опционально)"
     fi
 fi
 
 if [ $UPLOAD_FAILED -eq 0 ] && [ -d "$CONFIG_CICD_PATH" ]; then
-    echo "  6/6 Загрузка config/cicd..."
+    echo "  6/7 Загрузка config/cicd..."
     if ! do_ssh "mkdir -p ${REMOTE_PATH}/config/single-machine/cicd"; then
         echo "  [ОШИБКА] Не удалось создать директорию для config/cicd"
         UPLOAD_FAILED=1
@@ -493,7 +495,24 @@ if [ $UPLOAD_FAILED -eq 0 ] && [ -d "$CONFIG_CICD_PATH" ]; then
         fi
     fi
 elif [ ! -d "$CONFIG_CICD_PATH" ]; then
-    echo "  6/6 [Пропуск] config/cicd не найдена (опционально)"
+    echo "  6/7 [Пропуск] config/cicd не найдена (опционально)"
+fi
+
+if [ $UPLOAD_FAILED -eq 0 ] && [ -d "$CONFIG_TRAEFIK_DYNAMIC_PATH" ]; then
+    echo "  7/7 Загрузка config/traefik/dynamic..."
+    if upload_directory_if_changed "$CONFIG_TRAEFIK_DYNAMIC_PATH" "${REMOTE_PATH}/config/single-machine/traefik/dynamic" "config/traefik/dynamic"; then
+        if [ "$CHECK_ONLY" != true ]; then
+            if ! do_scp -r "$CONFIG_TRAEFIK_DYNAMIC_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/config/single-machine/traefik/"; then
+                echo "  [ОШИБКА] Не удалось загрузить config/traefik/dynamic"
+                UPLOAD_FAILED=1
+            else
+                save_dir_mtimes_to_cache "$CONFIG_TRAEFIK_DYNAMIC_PATH" "config/traefik/dynamic"
+                echo "  [OK] config/traefik/dynamic загружен"
+            fi
+        fi
+    fi
+elif [ ! -d "$CONFIG_TRAEFIK_DYNAMIC_PATH" ]; then
+    echo "  7/7 [Пропуск] config/traefik/dynamic не найдена (опционально)"
 fi
 
 if [ $UPLOAD_FAILED -eq 0 ]; then
