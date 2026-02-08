@@ -55,7 +55,7 @@ sudo ./scripts/single-machine/fix-mtu-issue.sh
 
 4. **Сменить DNS на клиенте** на стабильный: 77.88.8.8, 77.88.8.1 (Яндекс) или 8.8.8.8, 8.8.4.4 (Google). Параметры → Сеть → свойства адаптера → IPv4 → указать предпочтительный/альтернативный DNS.
 
-Полный чек-лист DNS: [../DNS_TROUBLESHOOTING.md](../DNS_TROUBLESHOOTING.md).
+Полный чек-лист DNS: [../dns/DNS_TROUBLESHOOTING.md](../dns/DNS_TROUBLESHOOTING.md).
 
 ---
 
@@ -167,5 +167,5 @@ curl.exe -s -o NUL -w "Time: %{time_total}s\n" "https://borisovai.tech/ru/blog/.
 ## 5. Если всё ещё не открывается
 
 - **Поиск проблемы в сети по шагам:** [network-diagnosis.md](network-diagnosis.md) (DNS, ping, MTU, curl, где править).
-- Проверить по шагам 404/маршрутизацию: [../scripts/single-machine/DIAGNOSE_404.md](../scripts/single-machine/DIAGNOSE_404.md).
-- Настройка DNS для доступности из разных сетей: [../DNS_SITE_SETUP.md](../DNS_SITE_SETUP.md).
+- Проверить по шагам 404/маршрутизацию: [../../scripts/single-machine/DIAGNOSE_404.md](../../scripts/single-machine/DIAGNOSE_404.md).
+- Настройка DNS для доступности из разных сетей: [../dns/DNS_SITE_SETUP.md](../dns/DNS_SITE_SETUP.md).

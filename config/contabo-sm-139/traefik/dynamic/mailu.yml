@@ -1,0 +1,63 @@
+http:
+  middlewares:
+    mailu-headers:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+          X-Forwarded-Port: "443"
+          X-Forwarded-Host: "mail.dev.borisovai.ru"
+        customResponseHeaders:
+          X-Forwarded-Proto: "https"
+        hostsProxyHeaders:
+          - "X-Forwarded-Host"
+        sslRedirect: false
+        forceSTSHeader: false
+
+    mailu-compress:
+      compress:
+        excludedContentTypes:
+          - "text/event-stream"
+
+  routers:
+    mailu-admin:
+      rule: "(Host(`mail.dev.borisovai.ru`) || Host(`mail.dev.borisovai.tech`)) && PathPrefix(`/admin`)"
+      service: mailu-front
+      entryPoints:
+        - websecure
+      middlewares:
+        - mailu-headers
+        - mailu-compress
+      tls:
+        certResolver: letsencrypt
+      priority: 10
+
+    mailu-webmail:
+      rule: "(Host(`mail.dev.borisovai.ru`) || Host(`mail.dev.borisovai.tech`)) && (Path(`/`) || PathPrefix(`/webmail`))"
+      service: mailu-front
+      entryPoints:
+        - websecure
+      middlewares:
+        - mailu-headers
+        - mailu-compress
+      tls:
+        certResolver: letsencrypt
+      priority: 5
+
+    mailu-catchall:
+      rule: "Host(`mail.dev.borisovai.ru`) || Host(`mail.dev.borisovai.tech`)"
+      service: mailu-front
+      entryPoints:
+        - websecure
+      middlewares:
+        - mailu-headers
+        - mailu-compress
+      tls:
+        certResolver: letsencrypt
+      priority: 1
+
+  services:
+    mailu-front:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "http://127.0.0.1:6555"

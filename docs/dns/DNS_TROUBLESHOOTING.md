@@ -2,7 +2,7 @@
 
 Краткие шаги, если в сети появляются ошибки DNS (сайт не открывается, «не удаётся найти адрес», неверный IP).
 
-**Если сайт открывается в одной сети, но не в другой** (таймаут, обрыв загрузки) — см. также [docs/site-not-accessible-some-networks.md](docs/site-not-accessible-some-networks.md) (Path MTU и DNS).
+**Если сайт открывается в одной сети, но не в другой** (таймаут, обрыв загрузки) — см. также [site-not-accessible-some-networks.md](../troubleshooting/site-not-accessible-some-networks.md) (Path MTU и DNS).
 
 ---
 

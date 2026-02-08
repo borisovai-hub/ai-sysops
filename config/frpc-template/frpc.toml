@@ -1,0 +1,30 @@
+# frpc.toml — клиент туннелирования
+# Скачать frpc: https://github.com/fatedier/frp/releases (frp_*_windows_amd64.zip → frpc.exe)
+# Запуск: frpc.exe -c frpc.toml
+# Документация: https://gofrp.org/en/docs/
+
+serverAddr = "borisovai.ru"
+serverPort = 17420
+auth.token = "ВСТАВЬТЕ_ТОКЕН_ИЗ_/etc/frp/frps.toml"
+
+# HTTP туннель (самый частый сценарий)
+# Результат: https://my-project.tunnel.borisovai.ru → localhost:3000
+[[proxies]]
+name = "my-project"
+type = "http"
+localPort = 3000
+subdomain = "my-project"
+
+# Ещё один HTTP туннель (раскомментировать при необходимости)
+# [[proxies]]
+# name = "api"
+# type = "http"
+# localPort = 8080
+# subdomain = "api"
+
+# TCP туннель — например, для базы данных (раскомментировать при необходимости)
+# [[proxies]]
+# name = "db"
+# type = "tcp"
+# localPort = 5432
+# remotePort = 17500

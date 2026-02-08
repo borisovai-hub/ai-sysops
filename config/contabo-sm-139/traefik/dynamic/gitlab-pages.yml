@@ -1,0 +1,16 @@
+http:
+  routers:
+    gitlab-pages:
+      rule: 'HostRegexp(`^[a-z0-9-]+.public\.gitlab\.dev\.borisovai\.ru$`) || Host(`public.gitlab.dev.borisovai.ru`) || HostRegexp(`^[a-z0-9-]+.public\.gitlab\.dev\.borisovai\.tech$`) || Host(`public.gitlab.dev.borisovai.tech`)'
+      service: gitlab-pages
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    gitlab-pages:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "http://127.0.0.1:8889"

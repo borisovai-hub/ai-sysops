@@ -198,6 +198,10 @@ entryPoints:
           permanent: true
   websecure:
     address: ":443"
+    transport:
+      respondingTimeouts:
+        readTimeout: "600s"
+        idleTimeout: "180s"
 
 providers:
   file:

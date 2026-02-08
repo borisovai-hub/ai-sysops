@@ -223,7 +223,7 @@ curl -b cookies.txt -X POST http://127.0.0.1:3000/api/services \
   -d '{"name": "my-app", "domain": "my-app.example.com", "backendHost": "127.0.0.1", "backendPort": 4010}'
 ```
 
-Подробнее: [docs/AGENT_SERVICES.md](docs/AGENT_SERVICES.md)
+Подробнее: [docs/agents/AGENT_SERVICES.md](docs/agents/AGENT_SERVICES.md)
 
 ## Решение проблем
 
@@ -350,7 +350,7 @@ systemctl restart mailu
 
 ## Полезные ссылки
 
-- [docs/REMOTE_WORK.md](docs/REMOTE_WORK.md) — работа с сервером через Remote-SSH и работа агентов на удалённой машине
+- [docs/setup/REMOTE_WORK.md](docs/setup/REMOTE_WORK.md) — работа с сервером через Remote-SSH и работа агентов на удалённой машине
 - [config/single-machine/ssh-config.example](config/single-machine/ssh-config.example) — пример SSH конфига
 - [GitLab Documentation](https://docs.gitlab.com/)
 - [n8n Documentation](https://docs.n8n.io/)

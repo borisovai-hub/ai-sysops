@@ -48,7 +48,7 @@ Clear-DnsClientCache
 Resolve-DnsName borisovai.tech -Server 8.8.8.8 | Format-Table Name, Type, IPAddress -AutoSize
 ```
 
-Если IP неверный или ошибка — в этой сети блокируют/подменяют DNS → обход через **hosts** (см. [DNS_TROUBLESHOOTING.md](../DNS_TROUBLESHOOTING.md)).
+Если IP неверный или ошибка — в этой сети блокируют/подменяют DNS → обход через **hosts** (см. [DNS_TROUBLESHOOTING.md](../dns/DNS_TROUBLESHOOTING.md)).
 
 ---
 
@@ -155,4 +155,4 @@ curl -sI -H "Accept-Encoding: gzip" http://127.0.0.1:4001/ru/blog/feat-add-globa
 4. `curl.exe -s -o NUL -w "%{time_total}s\n" -H "Accept-Encoding: gzip" "https://borisovai.tech/ru/blog/..."`.
 5. На сервере: `sudo ./scripts/single-machine/fix-mtu-issue.sh` (если ещё не запускали).
 
-См. также: [site-not-accessible-some-networks.md](site-not-accessible-some-networks.md), [DNS_TROUBLESHOOTING.md](../DNS_TROUBLESHOOTING.md).
+См. также: [site-not-accessible-some-networks.md](site-not-accessible-some-networks.md), [DNS_TROUBLESHOOTING.md](../dns/DNS_TROUBLESHOOTING.md).

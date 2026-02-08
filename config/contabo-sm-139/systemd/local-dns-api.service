@@ -1,0 +1,17 @@
+[Unit]
+Description=Local DNS API Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/local-dns-api
+ExecStart=/usr/bin/node local-dns-api-server.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=local-dns-api
+
+[Install]
+WantedBy=multi-user.target

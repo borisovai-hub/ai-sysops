@@ -5,9 +5,11 @@
 ## Подключение
 
 ```
-Base URL:  https://admin.borisovai.tech  (или http://127.0.0.1:3000 с сервера)
+Base URL:  https://admin.borisovai.ru  или  https://admin.borisovai.tech  (или http://127.0.0.1:3000 с сервера)
 Auth:      Bearer-токен (рекомендуется) или Cookie-сессия
 ```
+
+**Мульти-домен**: если домен не указан явно, оркестратор генерирует домены для всех `base_domains` из `/etc/install-config.json`. Например, для slug `my-app` создаются `my-app.borisovai.ru` и `my-app.borisovai.tech`. Traefik и DNS настраиваются для всех доменов автоматически.
 
 ## Аутентификация
 
@@ -139,7 +141,7 @@ Strapi + CI/CD + директория загрузок + переменные д
     "gitlabProjectId": 5,
     "projectType": "deploy",
     "appType": "frontend",
-    "domain": "my-app.borisovai.tech",
+    "domain": "my-app.borisovai.ru,my-app.borisovai.tech",
     "title": "My Application",
     "description": "",
     "pathWithNamespace": "group/my-app",
@@ -173,7 +175,7 @@ curl -b cookies.txt http://127.0.0.1:3000/api/publish/projects
 curl -b cookies.txt http://127.0.0.1:3000/api/publish/config
 ```
 
-Ответ: `baseDomain`, `runnerTag`, `gitlabConfigured`, `strapiConfigured`.
+Ответ: `baseDomain`, `baseDomains` (массив), `runnerTag`, `gitlabConfigured`, `strapiConfigured`.
 
 ### Получить список проектов GitLab
 
@@ -203,7 +205,7 @@ curl -b cookies.txt -X PUT http://127.0.0.1:3000/api/publish/projects/my-app/upd
 
 1. **Management UI** — установлен и запущен (`install-management-ui.sh`)
 2. **config.json** — заполнены поля:
-   - `gitlab_url` — URL GitLab (например `https://git.borisovai.ru`)
+   - `gitlab_url` — URL GitLab (например `https://gitlab.dev.borisovai.ru`)
    - `gitlab_token` — Personal Access Token с правами `api`
    - `strapi_url` — URL Strapi API (если нужны docs/product сценарии)
    - `strapi_token` — API токен Strapi
@@ -215,16 +217,14 @@ curl -b cookies.txt -X PUT http://127.0.0.1:3000/api/publish/projects/my-app/upd
 
 ## CI шаблоны
 
-Шаблоны хранятся в `management-ui/templates/`. Используемые плейсхолдеры:
+Шаблоны хранятся в `management-ui/templates/`. Плейсхолдеры, используемые в шаблонах:
 
 | Плейсхолдер | Описание |
 |-------------|----------|
-| `{{SLUG}}` | Идентификатор проекта |
-| `{{DOMAIN}}` | Домен проекта |
-| `{{PORT}}` | Выделенный порт |
 | `{{RUNNER_TAG}}` | Тег runner'а |
 | `{{DEFAULT_BRANCH}}` | Основная ветка (main/master) |
-| `{{APP_TYPE}}` | Тип приложения (frontend/backend/fullstack) |
+
+> Остальные параметры (порт, домен, путь деплоя) передаются через CI-переменные GitLab, а не через плейсхолдеры шаблонов.
 
 Шаблоны пушатся в целевой репозиторий как `.gitlab/ci/pipeline.yml`, а `.gitlab-ci.yml` содержит только `include: local: '.gitlab/ci/pipeline.yml'`.
 
@@ -381,15 +381,17 @@ if _STATIC_DIR.exists() and (_STATIC_DIR / "index.html").exists():
 ```python
 allow_origins=[
     "http://localhost:5173",  # dev
-    "https://<slug>.borisovai.tech",  # production
+    "https://<slug>.borisovai.ru",    # production
+    "https://<slug>.borisovai.tech",  # production (alt)
 ]
 ```
 
 ## Домены и порты
 
-- Домен проекта: `<slug>.borisovai.tech`
+- Домен проекта: `<slug>.borisovai.ru` и `<slug>.borisovai.tech` (оба генерируются автоматически)
+- В ответе API `domain` содержит оба домена через запятую: `"my-app.borisovai.ru,my-app.borisovai.tech"`
 - Порты выделяются автоматически начиная с `base_port` (по умолчанию 4010)
-- Traefik маршрутизирует HTTPS-трафик с домена на `127.0.0.1:<порт>`
+- Traefik маршрутизирует HTTPS-трафик с обоих доменов на `127.0.0.1:<порт>`
 - Порт можно узнать из ответа регистрации: `response.project.ports.frontend`
 
 ## Типичные ошибки

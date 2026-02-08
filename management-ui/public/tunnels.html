@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Туннели (frp)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        h2 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background: #2980b9;
+        }
+
+        .btn-success {
+            background: #27ae60;
+        }
+
+        .btn-success:hover {
+            background: #229954;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 13px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .token-display {
+            background: #2c3e50;
+            color: #2ecc71;
+            padding: 12px 16px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            word-break: break-all;
+            margin: 10px 0;
+            position: relative;
+        }
+
+        .token-display .copy-btn {
+            position: absolute;
+            right: 8px;
+            top: 8px;
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .token-display .copy-btn:hover {
+            background: #2980b9;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .status-running {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-stopped {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-not-installed {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .info-item {
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        .info-item .info-label {
+            font-size: 12px;
+            color: #7f8c8d;
+            margin-bottom: 4px;
+        }
+
+        .info-item .info-value {
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+
+        .config-form {
+            display: flex;
+            gap: 15px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .config-form .form-group {
+            flex: 1;
+            min-width: 200px;
+            margin-bottom: 0;
+        }
+
+        .url-preview {
+            margin-top: 10px;
+            padding: 8px 12px;
+            background: #eaf2f8;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #2c3e50;
+        }
+
+        .instructions {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border-left: 4px solid #3498db;
+        }
+
+        .instructions ol {
+            margin-left: 20px;
+        }
+
+        .instructions li {
+            margin-bottom: 6px;
+        }
+
+        .instructions code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-top">
+                <div>
+                    <h1>Туннели (frp)</h1>
+                    <p>Проброс локальных сервисов через сервер</p>
+                </div>
+                <div>
+                    <span id="username-display" style="margin-right: 15px; color: #7f8c8d;"></span>
+                    <button class="btn" onclick="logout()" style="background: #95a5a6;">Выход</button>
+                </div>
+            </div>
+            <nav style="display: flex; gap: 8px; margin-top: 15px; border-top: 1px solid #eee; padding-top: 12px;">
+                <a href="/" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Сервисы</a>
+                <a href="/dns.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">DNS</a>
+                <a href="/projects.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Проекты</a>
+                <a href="/tunnels.html" style="font-weight: 600; color: white; background: #3498db; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Туннели</a>
+                <a href="/tokens.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Токены</a>
+            </nav>
+        </header>
+
+        <div id="alert-container"></div>
+
+        <!-- Статус frps -->
+        <div class="card" id="status-card">
+            <h2>Статус frps</h2>
+            <div id="status-content">
+                <p style="color: #7f8c8d;">Загрузка...</p>
+            </div>
+        </div>
+
+        <!-- Активные туннели -->
+        <div class="card" id="proxies-card" style="display: none;">
+            <h2>Активные туннели</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Имя</th>
+                        <th>Тип</th>
+                        <th>Поддомен / Порт</th>
+                        <th>Клиент</th>
+                        <th>Статус</th>
+                    </tr>
+                </thead>
+                <tbody id="proxies-tbody">
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 20px;">Загрузка...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Подключение клиента -->
+        <div class="card" id="client-card" style="display: none;">
+            <h2>Подключение клиента</h2>
+
+            <div id="connection-info"></div>
+
+            <div style="margin-top: 20px;">
+                <h3 style="margin-bottom: 10px; font-size: 16px;">Генерация конфига</h3>
+                <div class="config-form">
+                    <div class="form-group">
+                        <label>Поддомен:</label>
+                        <input type="text" id="subdomain-input" placeholder="my-project" oninput="updatePreview()">
+                    </div>
+                    <div class="form-group">
+                        <label>Локальный порт:</label>
+                        <input type="number" id="localport-input" value="3000" min="1" max="65535">
+                    </div>
+                    <button class="btn btn-success" onclick="downloadConfig()">Скачать frpc.toml</button>
+                </div>
+                <div class="url-preview" id="url-preview"></div>
+            </div>
+
+            <div class="instructions">
+                <strong>Инструкция:</strong>
+                <ol>
+                    <li>Скачайте <code>frpc</code>: <a href="https://github.com/fatedier/frp/releases" target="_blank">github.com/fatedier/frp/releases</a> (frp_*_windows_amd64.zip)</li>
+                    <li>Распакуйте <code>frpc.exe</code> в удобную папку</li>
+                    <li>Скачайте конфиг кнопкой выше (или создайте <code>frpc.toml</code> вручную)</li>
+                    <li>Запустите: <code>frpc.exe -c frpc.toml</code></li>
+                    <li>Откройте URL из предпросмотра выше</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let tunnelConfig = null;
+        let refreshInterval = null;
+
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/auth/check');
+                const data = await response.json();
+                if (!data.authenticated) {
+                    window.location.href = '/login';
+                    return false;
+                }
+                if (data.username) {
+                    document.getElementById('username-display').textContent = data.username;
+                }
+                return true;
+            } catch (error) {
+                window.location.href = '/login';
+                return false;
+            }
+        }
+
+        async function logout() {
+            try {
+                await fetch('/logout', { method: 'POST' });
+                window.location.href = '/login';
+            } catch (error) {
+                window.location.href = '/login';
+            }
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function showAlert(message, type) {
+            const container = document.getElementById('alert-container');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            container.innerHTML = '';
+            container.appendChild(alert);
+            setTimeout(() => { alert.remove(); }, 5000);
+        }
+
+        // ---- Статус frps ----
+
+        async function loadStatus() {
+            try {
+                const response = await fetch('/api/tunnels/status');
+                const data = await response.json();
+                displayStatus(data);
+            } catch (error) {
+                displayStatus({ installed: false, error: error.message });
+            }
+        }
+
+        function displayStatus(data) {
+            const el = document.getElementById('status-content');
+            if (!data.installed) {
+                el.innerHTML = `
+                    <span class="status-badge status-not-installed">Не установлен</span>
+                    <p style="margin-top: 10px; color: #7f8c8d;">
+                        Запустите на сервере: <code>sudo ./install-frps.sh</code>
+                    </p>`;
+                return;
+            }
+            if (!data.running) {
+                el.innerHTML = `
+                    <span class="status-badge status-stopped">Остановлен</span>
+                    <p style="margin-top: 10px; color: #7f8c8d;">
+                        Запустите: <code>sudo systemctl start frps</code>
+                    </p>`;
+                document.getElementById('proxies-card').style.display = 'block';
+                document.getElementById('client-card').style.display = 'block';
+                return;
+            }
+            const proxyCount = (data.proxy_type_count || {});
+            const httpCount = proxyCount.http || 0;
+            const tcpCount = proxyCount.tcp || 0;
+            const totalCount = httpCount + tcpCount;
+            el.innerHTML = `
+                <span class="status-badge status-running">Запущен</span>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Активных туннелей</div>
+                        <div class="info-value">${totalCount} (HTTP: ${httpCount}, TCP: ${tcpCount})</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Подключений клиентов</div>
+                        <div class="info-value">${data.client_counts || 0}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Текущие подключения</div>
+                        <div class="info-value">${data.cur_conns || 0}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Версия frps</div>
+                        <div class="info-value">${escapeHtml(data.version || '—')}</div>
+                    </div>
+                </div>`;
+            document.getElementById('proxies-card').style.display = 'block';
+            document.getElementById('client-card').style.display = 'block';
+        }
+
+        // ---- Активные туннели ----
+
+        async function loadProxies() {
+            try {
+                const response = await fetch('/api/tunnels/proxies');
+                const data = await response.json();
+                displayProxies(data.proxies || []);
+            } catch (error) {
+                // Тихая ошибка при автообновлении
+            }
+        }
+
+        function displayProxies(proxies) {
+            const tbody = document.getElementById('proxies-tbody');
+            if (proxies.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; color: #7f8c8d;">Нет активных туннелей</td></tr>';
+                return;
+            }
+            tbody.innerHTML = proxies.map(p => {
+                const name = escapeHtml(p.name || '—');
+                const type = escapeHtml(p.tunnelType || p.type || '—');
+                let target = '—';
+                if (p.tunnelType === 'http' && p.conf) {
+                    const subdomain = p.conf.subdomain || p.conf.subDomain || '';
+                    if (subdomain && tunnelConfig) {
+                        target = `<a href="https://${escapeHtml(subdomain)}.${escapeHtml(tunnelConfig.subdomainHost)}" target="_blank">${escapeHtml(subdomain)}.${escapeHtml(tunnelConfig.subdomainHost)}</a>`;
+                    } else {
+                        target = escapeHtml(subdomain);
+                    }
+                } else if (p.tunnelType === 'tcp' && p.conf) {
+                    target = escapeHtml(String(p.conf.remotePort || '—'));
+                }
+                const clientAddr = escapeHtml(p.client_addr || p.clientAddr || '—');
+                const status = p.status === 'online'
+                    ? '<span class="status-badge status-running">online</span>'
+                    : `<span class="status-badge status-stopped">${escapeHtml(p.status || 'offline')}</span>`;
+                return `<tr><td><strong>${name}</strong></td><td>${type}</td><td>${target}</td><td>${clientAddr}</td><td>${status}</td></tr>`;
+            }).join('');
+        }
+
+        // ---- Конфиг подключения ----
+
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/tunnels/config');
+                const data = await response.json();
+                if (!data.installed) return;
+                tunnelConfig = data;
+                displayConfig(data);
+                updatePreview();
+            } catch (error) {
+                // Тихая ошибка
+            }
+        }
+
+        function displayConfig(data) {
+            const el = document.getElementById('connection-info');
+            el.innerHTML = `
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Адрес сервера</div>
+                        <div class="info-value">${escapeHtml(data.serverAddr)}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Control порт</div>
+                        <div class="info-value">${escapeHtml(data.controlPort)}</div>
+                    </div>
+                    <div class="info-item" style="grid-column: 1 / -1;">
+                        <div class="info-label">subdomainHost</div>
+                        <div class="info-value">${escapeHtml(data.subdomainHost)}</div>
+                    </div>
+                </div>
+                <div style="margin-top: 15px;">
+                    <div class="info-label" style="font-size: 12px; color: #7f8c8d; margin-bottom: 4px;">Auth Token</div>
+                    <div class="token-display">
+                        <span id="auth-token-value">${escapeHtml(data.authToken)}</span>
+                        <button class="copy-btn" onclick="copyToClipboard('${escapeHtml(data.authToken)}')">Скопировать</button>
+                    </div>
+                </div>`;
+        }
+
+        function updatePreview() {
+            const subdomain = document.getElementById('subdomain-input').value.trim().replace(/[^a-zA-Z0-9-]/g, '') || 'my-project';
+            const host = tunnelConfig ? tunnelConfig.subdomainHost : 'tunnel.borisovai.ru';
+            document.getElementById('url-preview').textContent = `https://${subdomain}.${host}`;
+        }
+
+        function downloadConfig() {
+            const subdomain = document.getElementById('subdomain-input').value.trim().replace(/[^a-zA-Z0-9-]/g, '') || 'my-project';
+            const localPort = document.getElementById('localport-input').value || '3000';
+            window.location.href = `/api/tunnels/client-config?subdomain=${encodeURIComponent(subdomain)}&localPort=${encodeURIComponent(localPort)}`;
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showAlert('Скопировано в буфер обмена', 'success');
+            }).catch(() => {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                showAlert('Скопировано', 'success');
+            });
+        }
+
+        // ---- Инициализация ----
+
+        checkAuth().then(authenticated => {
+            if (!authenticated) return;
+            loadStatus();
+            loadProxies();
+            loadConfig();
+            refreshInterval = setInterval(loadProxies, 10000);
+        });
+    </script>
+</body>
+</html>

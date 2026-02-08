@@ -1,0 +1,7 @@
+# Только HTTP/1.1 — устраняет ERR_HTTP2_PING_FAILED в браузере на нестабильных сетях
+tls:
+  options:
+    default:
+      alpnProtocols:
+        - http/1.1
+        - acme-tls/1

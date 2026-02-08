@@ -1,0 +1,23 @@
+http:
+  middlewares:
+    n8n-compress:
+      compress:
+        excludedContentTypes:
+          - "text/event-stream"
+
+  routers:
+    n8n:
+      rule: "Host(`n8n.dev.borisovai.ru`) || Host(`n8n.dev.borisovai.tech`)"
+      service: n8n
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - n8n-compress
+
+  services:
+    n8n:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:5678"

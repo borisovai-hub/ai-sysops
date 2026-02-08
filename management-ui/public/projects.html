@@ -276,6 +276,7 @@
                 <a href="/" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Сервисы</a>
                 <a href="/dns.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">DNS</a>
                 <a href="/projects.html" style="font-weight: 600; color: white; background: #3498db; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Проекты</a>
+                <a href="/tunnels.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Туннели</a>
                 <a href="/tokens.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Токены</a>
             </nav>
         </header>
@@ -353,7 +354,7 @@
                 <div class="form-group" id="group-domain" style="display: none;">
                     <label>Домен:</label>
                     <input type="text" name="domain" id="field-domain" placeholder="my-app.example.com">
-                    <small style="color: #7f8c8d;">Оставьте пустым для автоматического: slug.base_domain</small>
+                    <small style="color: #7f8c8d;">Оставьте пустым — домены для всех базовых доменов создадутся автоматически</small>
                 </div>
                 <div class="form-group">
                     <label>Описание:</label>
@@ -450,7 +451,11 @@
                 const slug = escapeHtml(p.slug);
                 const type = escapeHtml(p.projectType);
                 const badgeClass = 'badge-' + type;
-                const domain = p.domain ? `<a href="https://${escapeHtml(p.domain)}" target="_blank">${escapeHtml(p.domain)}</a>` : '&mdash;';
+                const domain = p.domain
+                    ? p.domain.split(',').map(d => d.trim()).filter(Boolean).map(d =>
+                        `<a href="https://${escapeHtml(d)}" target="_blank">${escapeHtml(d)}</a>`
+                    ).join('<br>')
+                    : '&mdash;';
                 const gitlabLink = p.pathWithNamespace
                     ? `<a href="${escapeHtml((publishConfig.gitlabUrl || '') + '/' + p.pathWithNamespace)}" target="_blank">${escapeHtml(p.pathWithNamespace)}</a>`
                     : escapeHtml(String(p.gitlabProjectId));
@@ -522,8 +527,13 @@
                         const nameVal = opt.getAttribute('data-name') || '';
                         document.getElementById('field-slug').value = pathVal;
                         document.getElementById('field-title').value = nameVal;
-                        if (publishConfig.baseDomain) {
-                            document.getElementById('field-domain').value = pathVal + '.' + publishConfig.baseDomain;
+                        const domainField = document.getElementById('field-domain');
+                        if (publishConfig.baseDomains && publishConfig.baseDomains.length > 1) {
+                            // Несколько базовых доменов — оставить пустым, показать подсказку
+                            domainField.value = '';
+                            domainField.placeholder = publishConfig.baseDomains.map(d => pathVal + '.' + d).join(', ');
+                        } else if (publishConfig.baseDomain) {
+                            domainField.value = pathVal + '.' + publishConfig.baseDomain;
                         }
                     }
                 });

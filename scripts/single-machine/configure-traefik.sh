@@ -21,15 +21,17 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 FORCE_MODE=false
+POSITIONAL_ARGS=()
 for arg in "$@"; do
     case $arg in
         --force) FORCE_MODE=true ;;
+        *) POSITIONAL_ARGS+=("$arg") ;;
     esac
 done
 
-GITLAB_DOMAIN="${1:-}"
-N8N_DOMAIN="${2:-}"
-UI_DOMAIN="${3:-}"
+GITLAB_DOMAIN="${POSITIONAL_ARGS[0]:-}"
+N8N_DOMAIN="${POSITIONAL_ARGS[1]:-}"
+UI_DOMAIN="${POSITIONAL_ARGS[2]:-}"
 
 # Режим базовых доменов: без аргументов — читаем из конфига
 USE_BASE_DOMAINS=false
@@ -188,6 +190,11 @@ http:
         excludedContentTypes:
           - "text/event-stream"
 
+    gitlab-buffering:
+      buffering:
+        maxRequestBodyBytes: 0
+        maxResponseBodyBytes: 0
+
   routers:
     ${service_name}:
       rule: "${host_rule}"
@@ -199,10 +206,21 @@ http:
       middlewares:
         - gitlab-headers
         - gitlab-compress
+        - gitlab-buffering
+
+  serversTransports:
+    gitlab-transport:
+      forwardingTimeouts:
+        dialTimeout: "30s"
+        responseHeaderTimeout: "600s"
+        idleConnTimeout: "600s"
 
   services:
     ${service_name}:
       loadBalancer:
+        serversTransport: gitlab-transport@file
+        responseForwarding:
+          flushInterval: "100ms"
         servers:
           - url: "${backend_url}"
 EOF
@@ -325,9 +343,9 @@ else
 fi
 echo "[4/6] Создание/обновление конфигурации для веб-интерфейса управления..."
 if [ -n "$MGMT_UI_HOSTS_CFG" ]; then
-    update_config "$DYNAMIC_DIR/management-ui.yml" "management-ui" "${UI_PREFIX},dns" "http://127.0.0.1:3000" "" "$(build_host_rule_from_list "$MGMT_UI_HOSTS_CFG")"
+    update_config "$DYNAMIC_DIR/management-ui.yml" "management-ui" "admin" "http://127.0.0.1:3000" "" "$(build_host_rule_from_list "$MGMT_UI_HOSTS_CFG")"
 elif [ "$USE_BASE_DOMAINS" = true ]; then
-    update_config "$DYNAMIC_DIR/management-ui.yml" "management-ui" "${UI_PREFIX},dns" "http://127.0.0.1:3000"
+    update_config "$DYNAMIC_DIR/management-ui.yml" "management-ui" "admin" "http://127.0.0.1:3000"
 else
     update_config "$DYNAMIC_DIR/management-ui.yml" "management-ui" "$UI_DOMAIN" "http://127.0.0.1:3000"
 fi
@@ -548,7 +566,61 @@ MAILUEOF
     fi
 fi
 
-echo "[6/6] Перезагрузка Traefik..."
+# ============================================================
+# [6/7] Конфигурация для frp туннелей (wildcard *.tunnel.*)
+# ============================================================
+FRP_PREFIX_CFG=$(get_config_value "frp_prefix")
+FRP_VHOST_PORT_CFG=$(get_config_value "frp_vhost_port")
+TUNNELS_YML="$DYNAMIC_DIR/tunnels.yml"
+
+if [ "$USE_BASE_DOMAINS" = true ] && [ -n "$FRP_PREFIX_CFG" ]; then
+    [ -z "$FRP_VHOST_PORT_CFG" ] && FRP_VHOST_PORT_CFG="17480"
+
+    if [ "$FORCE_MODE" = true ] || [ ! -f "$TUNNELS_YML" ]; then
+        echo "[6/7] Создание конфигурации для туннелей (frps)..."
+
+        # Собираем HostRegexp для каждого base domain
+        TUNNEL_HOST_RULE=""
+        while IFS= read -r base; do
+            [ -z "$base" ] && continue
+            TUNNEL_DOMAIN="${FRP_PREFIX_CFG}.${base}"
+            ESCAPED=$(echo "$TUNNEL_DOMAIN" | sed 's/\./\\\\./g')
+            if [ -n "$TUNNEL_HOST_RULE" ]; then
+                TUNNEL_HOST_RULE="${TUNNEL_HOST_RULE} || HostRegexp(\`^.+\\.${ESCAPED}\$\`)"
+            else
+                TUNNEL_HOST_RULE="HostRegexp(\`^.+\\.${ESCAPED}\$\`)"
+            fi
+        done < <(get_base_domains)
+
+        cat > "$TUNNELS_YML" << TUNNELSEOF
+http:
+  routers:
+    tunnels:
+      rule: "${TUNNEL_HOST_RULE}"
+      service: tunnel-frp
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      priority: 1
+
+  services:
+    tunnel-frp:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "http://127.0.0.1:${FRP_VHOST_PORT_CFG}"
+TUNNELSEOF
+        chmod 644 "$TUNNELS_YML"
+        echo "  [OK] Создан $TUNNELS_YML (порт: ${FRP_VHOST_PORT_CFG})"
+    else
+        echo "[6/7] [Пропуск] tunnels.yml уже существует"
+    fi
+else
+    echo "[6/7] [Пропуск] frp не настроен (нет frp_prefix в конфиге)"
+fi
+
+echo "[7/7] Перезагрузка Traefik..."
 if systemctl is-active --quiet traefik; then
     systemctl reload traefik 2>/dev/null || systemctl restart traefik
 else

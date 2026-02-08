@@ -66,10 +66,8 @@ done
 
 # Отключаем немедленный выход при ошибке для лучшей обработки
 set +e
-ERROR_OCCURRED=false
-
-# Настройка обработки ошибок
-trap 'err_code=$?; err_line=$LINENO; ERROR_OCCURRED=true; handle_error $err_code $err_line' ERR
+# Примечание: trap ERR не срабатывает при set +e, поэтому
+# полагаемся на явные проверки $? после критических команд
 
 echo "=========================================="
 echo "  Установка всех инструментов на одну машину"
@@ -104,7 +102,8 @@ show_component_menu() {
     echo "  [4] Веб-интерфейс управления"
     echo "  [5] DNS API интеграция"
     echo "  [6] Mailu Mail Server"
-    echo "  [7] CI/CD для автоматического деплоя"
+    echo "  [7] frp Tunneling (self-hosted ngrok)"
+    echo "  [8] CI/CD для автоматического деплоя"
     echo ""
     echo "  [D] Настройка доменов (сейчас: $(domain_mode_summary))"
     echo "  [P] Параметры установки (email, домены, DNS, порты)"
@@ -124,6 +123,7 @@ load_component_selection() {
     INSTALL_MANAGEMENT_UI=$(get_config_value "install_management_ui")
     INSTALL_DNS_API=$(get_config_value "install_dns_api")
     INSTALL_MAILU=$(get_config_value "install_mailu")
+    INSTALL_FRPS=$(get_config_value "install_frps")
     INSTALL_CICD=$(get_config_value "install_cicd")
     
     # Значения по умолчанию (если не сохранены)
@@ -133,6 +133,7 @@ load_component_selection() {
     [ -z "$INSTALL_MANAGEMENT_UI" ] && INSTALL_MANAGEMENT_UI="y"
     [ -z "$INSTALL_DNS_API" ] && INSTALL_DNS_API="n"
     [ -z "$INSTALL_MAILU" ] && INSTALL_MAILU="n"
+    [ -z "$INSTALL_FRPS" ] && INSTALL_FRPS="n"
     [ -z "$INSTALL_CICD" ] && INSTALL_CICD="n"
 }
 
@@ -144,6 +145,7 @@ save_component_selection() {
     save_config_value "install_management_ui" "$INSTALL_MANAGEMENT_UI"
     save_config_value "install_dns_api" "$INSTALL_DNS_API"
     save_config_value "install_mailu" "$INSTALL_MAILU"
+    save_config_value "install_frps" "$INSTALL_FRPS"
     save_config_value "install_cicd" "$INSTALL_CICD"
 }
 
@@ -191,6 +193,7 @@ show_selected_components() {
     [ "$INSTALL_MANAGEMENT_UI" = "y" ] && echo "  [✓] Веб-интерфейс управления" || echo "  [ ] Веб-интерфейс управления"
     [ "$INSTALL_DNS_API" = "y" ] && echo "  [✓] DNS API" || echo "  [ ] DNS API"
     [ "$INSTALL_MAILU" = "y" ] && echo "  [✓] Mailu Mail Server" || echo "  [ ] Mailu Mail Server"
+    [ "$INSTALL_FRPS" = "y" ] && echo "  [✓] frp Tunneling" || echo "  [ ] frp Tunneling"
     [ "$INSTALL_CICD" = "y" ] && echo "  [✓] CI/CD" || echo "  [ ] CI/CD"
     echo "  Домены: $(domain_mode_summary)"
     echo ""
@@ -258,12 +261,13 @@ if [ "$USE_DIALOG" = true ]; then
                     "management_ui" "Веб-интерфейс управления" "$([ "$INSTALL_MANAGEMENT_UI" = y ] && echo ON || echo OFF)" \
                     "dns_api" "DNS API" "$([ "$INSTALL_DNS_API" = y ] && echo ON || echo OFF)" \
                     "mailu" "Mailu Mail Server" "$([ "$INSTALL_MAILU" = y ] && echo ON || echo OFF)" \
+                    "frps" "frp Tunneling (self-hosted ngrok)" "$([ "$INSTALL_FRPS" = y ] && echo ON || echo OFF)" \
                     "cicd" "CI/CD" "$([ "$INSTALL_CICD" = y ] && echo ON || echo OFF)" \
                     2> "$TMPFILE"
                 res=$(cat "$TMPFILE" 2>/dev/null | tr -d '"' | tr '\n' ' ')
                 rm -f "$TMPFILE"
                 TMPFILE=""
-                for tag in traefik gitlab n8n management_ui dns_api mailu cicd; do
+                for tag in traefik gitlab n8n management_ui dns_api mailu frps cicd; do
                     case "$tag" in
                         traefik) if echo " $res " | grep -q " traefik "; then INSTALL_TRAEFIK=y; else INSTALL_TRAEFIK=n; fi ;;
                         gitlab)  if echo " $res " | grep -q " gitlab "; then INSTALL_GITLAB=y; else INSTALL_GITLAB=n; fi ;;
@@ -271,6 +275,7 @@ if [ "$USE_DIALOG" = true ]; then
                         management_ui) if echo " $res " | grep -q " management_ui "; then INSTALL_MANAGEMENT_UI=y; else INSTALL_MANAGEMENT_UI=n; fi ;;
                         dns_api) if echo " $res " | grep -q " dns_api "; then INSTALL_DNS_API=y; else INSTALL_DNS_API=n; fi ;;
                         mailu)   if echo " $res " | grep -q " mailu "; then INSTALL_MAILU=y; else INSTALL_MAILU=n; fi ;;
+                        frps)    if echo " $res " | grep -q " frps "; then INSTALL_FRPS=y; else INSTALL_FRPS=n; fi ;;
                         cicd)    if echo " $res " | grep -q " cicd "; then INSTALL_CICD=y; else INSTALL_CICD=n; fi ;;
                     esac
                 done
@@ -369,7 +374,7 @@ if [ "$USE_DIALOG" = true ]; then
                 ;;
             all)
                 INSTALL_TRAEFIK=y; INSTALL_GITLAB=y; INSTALL_N8N=y; INSTALL_MANAGEMENT_UI=y
-                INSTALL_DNS_API=y; INSTALL_MAILU=y; INSTALL_CICD=y
+                INSTALL_DNS_API=y; INSTALL_MAILU=y; INSTALL_FRPS=y; INSTALL_CICD=y
                 save_component_selection
                 dialog --msgbox "Все компоненты включены." 5 40
                 ;;
@@ -381,6 +386,7 @@ if [ "$USE_DIALOG" = true ]; then
                 [ "$INSTALL_MANAGEMENT_UI" = y ] && sel="${sel}[✓] Веб-интерфейс\n" || sel="${sel}[ ] Веб-интерфейс\n"
                 [ "$INSTALL_DNS_API" = y ] && sel="${sel}[✓] DNS API\n" || sel="${sel}[ ] DNS API\n"
                 [ "$INSTALL_MAILU" = y ] && sel="${sel}[✓] Mailu\n" || sel="${sel}[ ] Mailu\n"
+                [ "$INSTALL_FRPS" = y ] && sel="${sel}[✓] frp Tunneling\n" || sel="${sel}[ ] frp Tunneling\n"
                 [ "$INSTALL_CICD" = y ] && sel="${sel}[✓] CI/CD\n" || sel="${sel}[ ] CI/CD\n"
                 sel="${sel}\nДомены: $(domain_mode_summary)"
                 dialog --msgbox "$(printf '%b' "$sel")" 14 45
@@ -390,7 +396,7 @@ if [ "$USE_DIALOG" = true ]; then
                     dialog --msgbox "Ошибка: Traefik обязателен для работы других компонентов. Включите Traefik." 7 50
                     continue
                 fi
-                if [ "$INSTALL_GITLAB" != "y" ] && [ "$INSTALL_N8N" != "y" ] && [ "$INSTALL_MANAGEMENT_UI" != "y" ] && [ "$INSTALL_DNS_API" != "y" ] && [ "$INSTALL_MAILU" != "y" ] && [ "$INSTALL_CICD" != "y" ]; then
+                if [ "$INSTALL_GITLAB" != "y" ] && [ "$INSTALL_N8N" != "y" ] && [ "$INSTALL_MANAGEMENT_UI" != "y" ] && [ "$INSTALL_DNS_API" != "y" ] && [ "$INSTALL_MAILU" != "y" ] && [ "$INSTALL_FRPS" != "y" ] && [ "$INSTALL_CICD" != "y" ]; then
                     dialog --yesno "Выбран только Traefik. Продолжить?" 6 40 && break || continue
                 fi
                 break
@@ -405,7 +411,7 @@ while [ "$COMPONENT_MENU" = true ]; do
     show_component_menu
     show_selected_components
     
-    read -p "Выберите действие (1-7, D, P, A, S, Q): " MENU_CHOICE
+    read -p "Выберите действие (1-8, D, P, A, S, Q): " MENU_CHOICE
     MENU_CHOICE=$(echo "$MENU_CHOICE" | tr ',' ' ')
     for choice in $MENU_CHOICE; do
     case $choice in
@@ -557,6 +563,15 @@ while [ "$COMPONENT_MENU" = true ]; do
             fi
             ;;
         7)
+            if [ "$INSTALL_FRPS" = "y" ]; then
+                INSTALL_FRPS="n"
+                echo "  frp Tunneling: отключён"
+            else
+                INSTALL_FRPS="y"
+                echo "  frp Tunneling: включён"
+            fi
+            ;;
+        8)
             if [ "$INSTALL_CICD" = "y" ]; then
                 INSTALL_CICD="n"
                 echo "  CI/CD: отключён"
@@ -572,6 +587,7 @@ while [ "$COMPONENT_MENU" = true ]; do
             INSTALL_MANAGEMENT_UI="y"
             INSTALL_DNS_API="y"
             INSTALL_MAILU="y"
+            INSTALL_FRPS="y"
             INSTALL_CICD="y"
             echo "  Все компоненты: включены"
             ;;
@@ -590,7 +606,7 @@ while [ "$COMPONENT_MENU" = true ]; do
             fi
             
             # Проверка, что выбран хотя бы один компонент
-            if [ "$INSTALL_GITLAB" != "y" ] && [ "$INSTALL_N8N" != "y" ] && [ "$INSTALL_MANAGEMENT_UI" != "y" ] && [ "$INSTALL_DNS_API" != "y" ] && [ "$INSTALL_MAILU" != "y" ] && [ "$INSTALL_CICD" != "y" ]; then
+            if [ "$INSTALL_GITLAB" != "y" ] && [ "$INSTALL_N8N" != "y" ] && [ "$INSTALL_MANAGEMENT_UI" != "y" ] && [ "$INSTALL_DNS_API" != "y" ] && [ "$INSTALL_MAILU" != "y" ] && [ "$INSTALL_FRPS" != "y" ] && [ "$INSTALL_CICD" != "y" ]; then
                 echo ""
                 echo "Предупреждение: Выбран только Traefik."
                 read -p "Продолжить? (y/n): " CONTINUE_ONLY_TRAEFIK
@@ -1228,6 +1244,52 @@ else
     save_install_state "management_ui" "completed"
 fi
 
+# Установка frp server (туннелирование)
+if [ "$INSTALL_FRPS" = "y" ]; then
+    echo ""
+    echo "=== [8.5/10] Установка frp Tunneling ==="
+    STEP_NAME="frps"
+    SERVICE_FORCE_MODE=false
+    if check_and_ask_reinstall "frps" "is_service_installed frps.service" "$INSTALL_MODE"; then
+        SERVICE_FORCE_MODE=true
+    fi
+
+    if [ "$CONTINUE_MODE" = true ] && is_step_completed "$STEP_NAME" && [ "$SERVICE_FORCE_MODE" != true ]; then
+        echo "  [Пропуск] frps уже установлен"
+    else
+        if [ "$SERVICE_FORCE_MODE" = true ]; then
+            save_install_state "$STEP_NAME" "in_progress"
+            if [ -f "$SCRIPT_DIR/install-frps.sh" ]; then
+                bash "$SCRIPT_DIR/install-frps.sh" --force
+                if [ $? -eq 0 ]; then
+                    save_install_state "$STEP_NAME" "completed"
+                    echo "  [OK] frps установлен"
+                else
+                    echo "  [ОШИБКА] Не удалось установить frps"
+                    if [ "$CONTINUE_MODE" != true ]; then
+                        echo "Используйте --continue для продолжения"
+                        exit 1
+                    fi
+                fi
+            else
+                echo "  [ОШИБКА] Скрипт install-frps.sh не найден"
+                exit 1
+            fi
+        else
+            if [ "$INSTALL_MODE" = "ask" ]; then
+                echo "  [Пропуск] frps уже установлен (пользователь отказался от переустановки)"
+            else
+                echo "  [Пропуск] frps уже установлен"
+            fi
+        fi
+    fi
+else
+    echo ""
+    echo "=== [8.5/10] Установка frp Tunneling ==="
+    echo "  [Пропуск] frp Tunneling не выбран для установки"
+    save_install_state "frps" "completed"
+fi
+
 # Установка Mailu Mail Server (если выбрано)
 if [ "$INSTALL_MAILU" = "y" ] && [ -n "$MAIL_DOMAIN" ]; then
     echo ""
@@ -1412,6 +1474,7 @@ TRAEFIK_OK=false
 GITLAB_OK=false
 N8N_OK=false
 UI_OK=false
+FRPS_OK=false
 MAILU_OK=false
 CICD_OK=false
 
@@ -1451,6 +1514,15 @@ if [ "$INSTALL_MANAGEMENT_UI" = "y" ]; then
     fi
 fi
 
+if [ "$INSTALL_FRPS" = "y" ]; then
+    if systemctl is-active --quiet frps; then
+        echo "  ✓ frp Tunneling - запущен"
+        FRPS_OK=true
+    else
+        echo "  ✗ frp Tunneling - не запущен (проверьте: systemctl status frps)"
+    fi
+fi
+
 if [ "$INSTALL_MAILU" = "y" ] && [ -n "$MAIL_DOMAIN" ]; then
     if systemctl is-active --quiet mailu; then
         echo "  ✓ Mailu Mail Server - запущен"
@@ -1483,6 +1555,9 @@ fi
 if [ "$INSTALL_MANAGEMENT_UI" = "y" ] && [ "$UI_OK" = false ]; then
     HAS_ERRORS=true
 fi
+if [ "$INSTALL_FRPS" = "y" ] && [ "$FRPS_OK" = false ]; then
+    HAS_ERRORS=true
+fi
 if [ "$INSTALL_MAILU" = "y" ] && [ -n "$MAIL_DOMAIN" ] && [ "$MAILU_OK" = false ]; then
     HAS_ERRORS=true
 fi
@@ -1498,7 +1573,7 @@ fi
 
 echo ""
 echo "=========================================="
-if [ "$ERROR_OCCURRED" = true ]; then
+if [ "$HAS_ERRORS" = true ]; then
     echo "  Установка завершена с ошибками"
     echo "=========================================="
     echo ""
@@ -1522,6 +1597,13 @@ if [ "$INSTALL_N8N" = "y" ] && [ -n "$N8N_DOMAIN" ]; then
 fi
 if [ "$INSTALL_MANAGEMENT_UI" = "y" ] && [ -n "$UI_DOMAIN" ]; then
     echo "  - Веб-интерфейс управления: https://$UI_DOMAIN"
+fi
+if [ "$INSTALL_FRPS" = "y" ]; then
+    FRP_PREFIX=$(get_config_value "frp_prefix")
+    [ -z "$FRP_PREFIX" ] && FRP_PREFIX="tunnel"
+    FIRST_BASE=$(get_base_domains 2>/dev/null | head -1)
+    echo "  - frp Tunneling: *.${FRP_PREFIX}.${FIRST_BASE}"
+    echo "    Dashboard: http://127.0.0.1:$(get_config_value "frp_dashboard_port" 2>/dev/null || echo 17490)"
 fi
 if [ "$INSTALL_MAILU" = "y" ] && [ -n "$MAIL_DOMAIN" ]; then
     echo "  - Mailu Mail Server: https://$MAIL_DOMAIN и https://$MAIL_DOMAIN/admin"
@@ -1554,6 +1636,15 @@ fi
 if [ "$INSTALL_DNS_API" = "y" ]; then
     echo "  - Local DNS API: http://127.0.0.1:5353"
     echo "  - dnsmasq: 53 (UDP, DNS)"
+fi
+if [ "$INSTALL_FRPS" = "y" ]; then
+    FRP_CTRL=$(get_config_value "frp_control_port")
+    FRP_VHOST=$(get_config_value "frp_vhost_port")
+    FRP_DASH=$(get_config_value "frp_dashboard_port")
+    echo "  - frp Tunneling:"
+    echo "    * Control channel: ${FRP_CTRL:-17420} (внешний)"
+    echo "    * vHost HTTP: ${FRP_VHOST:-17480} (за Traefik)"
+    echo "    * Dashboard: http://127.0.0.1:${FRP_DASH:-17490}"
 fi
 if [ "$INSTALL_MAILU" = "y" ] && [ -n "$MAIL_DOMAIN" ]; then
     echo "  - Mailu Mail Server:"
@@ -1591,6 +1682,10 @@ if [ "$INSTALL_N8N" = "y" ]; then
 fi
 if [ "$INSTALL_MANAGEMENT_UI" = "y" ]; then
     echo "  systemctl status management-ui"
+fi
+if [ "$INSTALL_FRPS" = "y" ]; then
+    echo "  systemctl status frps"
+    echo "  journalctl -u frps -f"
 fi
 if [ "$INSTALL_MAILU" = "y" ] && [ -n "$MAIL_DOMAIN" ]; then
     echo "  systemctl status mailu"

@@ -16,6 +16,7 @@ const TRAEFIK_DYNAMIC_DIR = '/etc/traefik/dynamic';
 const DNS_CONFIG_FILE = '/etc/dns-api/config.json';
 const PROJECTS_FILE = '/etc/management-ui/projects.json';
 const TEMPLATES_DIR = path.join(__dirname, 'templates');
+const INSTALL_CONFIG_FILE = '/etc/install-config.json';
 
 // Настройка сессий
 app.use(session({
@@ -163,6 +164,30 @@ try {
 const DNS_API_PORT = dnsConfig.port || 5353;
 const DNS_API_BASE = `http://127.0.0.1:${DNS_API_PORT}`;
 
+// Загрузка install-config для base_domains (borisovai.ru, borisovai.tech)
+let installConfig = {};
+try {
+    if (fs.existsSync(INSTALL_CONFIG_FILE)) {
+        installConfig = fs.readJsonSync(INSTALL_CONFIG_FILE);
+    }
+} catch (error) {
+    console.warn('Install config не найден:', INSTALL_CONFIG_FILE);
+}
+
+function getBaseDomains() {
+    const raw = installConfig.base_domains || '';
+    if (!raw) return [];
+    return raw.split(',').map(d => d.trim()).filter(Boolean);
+}
+
+// Построить домены для всех base_domains: slug.borisovai.ru,slug.borisovai.tech
+function buildAllDomains(prefix) {
+    const domains = getBaseDomains();
+    if (domains.length === 0) return '';
+    if (!prefix) return domains.join(',');
+    return domains.map(d => `${prefix}.${d}`).join(',');
+}
+
 // ==================== Helper functions ====================
 
 async function getExternalIp() {
@@ -184,6 +209,32 @@ async function createDnsRecord(subdomain, ip) {
     }
 }
 
+// Создание DNS записей для всех base_domains (borisovai.ru + borisovai.tech)
+async function createDnsRecordsForAllDomains(subdomain, ip) {
+    if (!dnsConfig.provider) return { done: false, detail: 'DNS провайдер не настроен' };
+    const domains = getBaseDomains();
+    if (domains.length === 0) {
+        return createDnsRecord(subdomain, ip);
+    }
+    const created = [];
+    for (const baseDomain of domains) {
+        try {
+            await axios.post(`${DNS_API_BASE}/api/records`, {
+                subdomain: sanitizeString(subdomain),
+                domain: baseDomain,
+                ip: sanitizeString(ip)
+            }, { timeout: 5000 });
+            created.push(`${subdomain}.${baseDomain}`);
+        } catch (error) {
+            console.warn(`DNS ошибка для ${subdomain}.${baseDomain}:`, error.message);
+        }
+    }
+    if (created.length > 0) {
+        return { done: true, detail: `A записи: ${created.join(', ')}` };
+    }
+    return { done: false, error: 'Не удалось создать DNS записи' };
+}
+
 async function deleteDnsRecord(subdomain) {
     if (!dnsConfig.provider) return;
     try {
@@ -194,11 +245,13 @@ async function deleteDnsRecord(subdomain) {
 }
 
 async function createTraefikConfig(name, domain, internalIp, port) {
+    // domain может быть через запятую: "slug.borisovai.ru,slug.borisovai.tech"
+    const hostRule = buildHostRule(domain) || `Host(\`${domain}\`)`;
     const configContent = {
         http: {
             routers: {
                 [name]: {
-                    rule: `Host(\`${domain}\`)`,
+                    rule: hostRule,
                     service: name,
                     entryPoints: ['websecure'],
                     tls: { certResolver: 'letsencrypt' }
@@ -545,33 +598,35 @@ app.get('/api/services', requireAuth, async (req, res) => {
                 const data = yaml.parse(content);
 
                 if (data.http && data.http.routers) {
-                    const routerName = Object.keys(data.http.routers)[0];
-                    const router = data.http.routers[routerName];
-                    const serviceName = router.service;
-                    const service = data.http.services[serviceName];
+                    const routerNames = Object.keys(data.http.routers);
+                    for (const routerName of routerNames) {
+                        const router = data.http.routers[routerName];
+                        const serviceName = router.service;
+                        const service = data.http.services && data.http.services[serviceName];
 
-                    if (router.rule) {
-                        const ruleClean = sanitizeString(router.rule);
-                        const domains = [];
-                        // Поддержка обратных кавычек и одинарных; захват только допустимых символов домена
-                        const hostRegex = /Host\([`']([a-zA-Z0-9._-]+)[`']\)/g;
-                        let m;
-                        while ((m = hostRegex.exec(ruleClean)) !== null) {
-                            const d = sanitizeString(m[1]);
-                            if (d && !domains.includes(d)) domains.push(d);
+                        if (router.rule && service) {
+                            const ruleClean = sanitizeString(router.rule);
+                            const domains = [];
+                            // Поддержка обратных кавычек и одинарных; захват только допустимых символов домена
+                            const hostRegex = /Host\([`']([a-zA-Z0-9._-]+)[`']\)/g;
+                            let m;
+                            while ((m = hostRegex.exec(ruleClean)) !== null) {
+                                const d = sanitizeString(m[1]);
+                                if (d && !domains.includes(d)) domains.push(d);
+                            }
+                            const domain = domains.length > 0 ? domains.join(', ') : '';
+                            const server = service.loadBalancer && service.loadBalancer.servers && service.loadBalancer.servers[0];
+                            const urlMatch = server && server.url ? server.url.match(/http:\/\/(.+):(\d+)/) : null;
+                            const internalIp = urlMatch ? sanitizeString(urlMatch[1]) : '';
+                            const port = urlMatch ? sanitizeString(urlMatch[2]) : '';
+                            services.push({
+                                name: sanitizeString(routerNames.length > 1 ? routerName : file.replace('.yml', '')),
+                                domain: domain,
+                                internalIp: internalIp,
+                                port: port,
+                                configFile: file
+                            });
                         }
-                        const domain = domains.length > 0 ? domains.join(', ') : '';
-                        const server = service.loadBalancer.servers[0];
-                        const urlMatch = server && server.url ? server.url.match(/http:\/\/(.+):(\d+)/) : null;
-                        const internalIp = urlMatch ? sanitizeString(urlMatch[1]) : '';
-                        const port = urlMatch ? sanitizeString(urlMatch[2]) : '';
-                        services.push({
-                            name: sanitizeString(file.replace('.yml', '')),
-                            domain: domain,
-                            internalIp: internalIp,
-                            port: port,
-                            configFile: file
-                        });
                     }
                 }
             }
@@ -597,10 +652,10 @@ app.post('/api/services', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'Необходимы параметры: name, internalIp, port' });
         }
 
-        // Определение домена
+        // Определение домена (все base_domains если не задан явно)
         let serviceDomain = domain;
-        if (!serviceDomain && dnsConfig.domain) {
-            serviceDomain = `${name}.${dnsConfig.domain}`;
+        if (!serviceDomain) {
+            serviceDomain = buildAllDomains(name) || (dnsConfig.domain ? `${name}.${dnsConfig.domain}` : '');
         }
 
         if (!serviceDomain) {
@@ -611,8 +666,8 @@ app.post('/api/services', requireAuth, async (req, res) => {
         // Получение внешнего IP
         const externalIp = await getExternalIp();
 
-        // Создание DNS записи
-        await createDnsRecord(name, externalIp);
+        // Создание DNS записей для всех base_domains
+        await createDnsRecordsForAllDomains(name, externalIp);
 
         // Создание конфигурации Traefik
         await createTraefikConfig(name, serviceDomain, internalIp, port);
@@ -743,8 +798,10 @@ app.get('/api/gitlab/projects', requireAuth, async (req, res) => {
 
 // GET /api/publish/config
 app.get('/api/publish/config', requireAuth, (req, res) => {
+    const domains = getBaseDomains();
     res.json({
-        baseDomain: dnsConfig.domain || '',
+        baseDomain: domains[0] || dnsConfig.domain || '',
+        baseDomains: domains.length > 0 ? domains : (dnsConfig.domain ? [dnsConfig.domain] : []),
         runnerTag: config.runner_tag || 'deploy-production',
         gitlabConfigured: !!(config.gitlab_url && config.gitlab_token),
         strapiConfigured: !!(config.strapi_url && config.strapi_token)
@@ -788,8 +845,8 @@ app.post('/api/publish/projects', requireAuth, async (req, res) => {
 
         const defaultBranch = gitlabProject.default_branch || 'main';
         const pathWithNamespace = gitlabProject.path_with_namespace;
-        const baseDomain = dnsConfig.domain || '';
-        const projectDomain = domain || (baseDomain ? `${slug}.${baseDomain}` : '');
+        // Все base_domains если домен не задан явно
+        const projectDomain = domain || buildAllDomains(slug) || (dnsConfig.domain ? `${slug}.${dnsConfig.domain}` : '');
         const runnerTag = config.runner_tag || 'deploy-production';
 
         const steps = {};
@@ -820,10 +877,10 @@ app.post('/api/publish/projects', requireAuth, async (req, res) => {
             const port = allocatePort(projects);
             projectRecord.ports = { frontend: port };
 
-            // DNS
+            // DNS (для всех base_domains)
             try {
                 const externalIp = await getExternalIp();
-                steps.dns = await createDnsRecord(slug, externalIp);
+                steps.dns = await createDnsRecordsForAllDomains(slug, externalIp);
             } catch (error) {
                 steps.dns = { done: false, error: error.message };
             }
@@ -1075,6 +1132,107 @@ app.put('/api/publish/projects/:slug/update-ci', requireAuth, async (req, res) =
         console.error('Ошибка обновления CI:', error);
         res.status(500).json({ error: error.message });
     }
+});
+
+// ============================================================
+// Туннели (frp) — статус, прокси, конфиг клиента
+// ============================================================
+
+const FRP_CONFIG_FILE = '/etc/frp/frps.toml';
+
+function readFrpsConfig() {
+    try {
+        if (!fs.existsSync(FRP_CONFIG_FILE)) return null;
+        const content = fs.readFileSync(FRP_CONFIG_FILE, 'utf8');
+        const config = {};
+        for (const line of content.split('\n')) {
+            const match = line.match(/^([a-zA-Z_.]+)\s*=\s*"?([^"]*)"?\s*$/);
+            if (match) config[match[1]] = match[2];
+        }
+        return config;
+    } catch { return null; }
+}
+
+async function frpsDashboardRequest(apiPath) {
+    const cfg = readFrpsConfig();
+    if (!cfg) throw new Error('frps не установлен');
+    const port = cfg['webServer.port'] || '17490';
+    const user = cfg['webServer.user'] || 'admin';
+    const pass = cfg['webServer.password'] || '';
+    const resp = await axios.get(`http://127.0.0.1:${port}${apiPath}`, {
+        auth: { username: user, password: pass },
+        timeout: 5000
+    });
+    return resp.data;
+}
+
+app.get('/tunnels.html', requireSessionAuth, (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'tunnels.html'));
+});
+
+app.get('/api/tunnels/status', requireAuth, async (req, res) => {
+    const cfg = readFrpsConfig();
+    if (!cfg) return res.json({ installed: false });
+    try {
+        const info = await frpsDashboardRequest('/api/serverinfo');
+        res.json({ installed: true, running: true, ...info });
+    } catch (error) {
+        res.json({ installed: true, running: false, error: error.message });
+    }
+});
+
+app.get('/api/tunnels/proxies', requireAuth, async (req, res) => {
+    const cfg = readFrpsConfig();
+    if (!cfg) return res.json({ proxies: [] });
+    try {
+        const [httpRes, tcpRes] = await Promise.all([
+            frpsDashboardRequest('/api/proxy/http').catch(() => ({ proxies: [] })),
+            frpsDashboardRequest('/api/proxy/tcp').catch(() => ({ proxies: [] }))
+        ]);
+        const proxies = [
+            ...(httpRes.proxies || []).map(p => ({ ...p, tunnelType: 'http' })),
+            ...(tcpRes.proxies || []).map(p => ({ ...p, tunnelType: 'tcp' }))
+        ];
+        res.json({ proxies });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/tunnels/config', requireSessionAuth, (req, res) => {
+    const cfg = readFrpsConfig();
+    if (!cfg) return res.json({ installed: false });
+    const baseDomains = getBaseDomains();
+    res.json({
+        installed: true,
+        serverAddr: baseDomains[0] || '',
+        controlPort: cfg['bindPort'] || '17420',
+        subdomainHost: cfg['subdomainHost'] || '',
+        authToken: cfg['auth.token'] || ''
+    });
+});
+
+app.get('/api/tunnels/client-config', requireSessionAuth, (req, res) => {
+    const cfg = readFrpsConfig();
+    if (!cfg) return res.status(404).json({ error: 'frps не установлен' });
+    const subdomain = sanitizeString(req.query.subdomain || 'my-project').replace(/[^a-zA-Z0-9-]/g, '');
+    const localPort = parseInt(req.query.localPort, 10) || 3000;
+    const baseDomains = getBaseDomains();
+    const serverAddr = baseDomains[0] || '';
+    const toml = [
+        `serverAddr = "${serverAddr}"`,
+        `serverPort = ${cfg['bindPort'] || '17420'}`,
+        `auth.token = "${cfg['auth.token'] || ''}"`,
+        '',
+        '[[proxies]]',
+        `name = "${subdomain}"`,
+        'type = "http"',
+        `localPort = ${localPort}`,
+        `subdomain = "${subdomain}"`,
+    ].join('\n');
+    res.setHeader('Content-Type', 'application/toml');
+    res.setHeader('Content-Disposition', 'attachment; filename="frpc.toml"');
+    res.send(toml);
 });
 
 // Главная страница (авторизация проверяется через middleware выше)

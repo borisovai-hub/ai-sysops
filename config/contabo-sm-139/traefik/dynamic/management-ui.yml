@@ -1,14 +1,23 @@
 http:
+  middlewares:
+    management-ui-compress:
+      compress:
+        excludedContentTypes:
+          - "text/event-stream"
+
   routers:
-    admin:
+    management-ui:
       rule: "Host(`admin.borisovai.ru`) || Host(`admin.borisovai.tech`)"
-      service: admin
+      service: management-ui
       entryPoints:
         - websecure
       tls:
         certResolver: letsencrypt
+      middlewares:
+        - management-ui-compress
+
   services:
-    admin:
+    management-ui:
       loadBalancer:
         servers:
           - url: "http://127.0.0.1:3000"

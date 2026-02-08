@@ -1,0 +1,38 @@
+http:
+  middlewares:
+    site-compress:
+      compress:
+        excludedContentTypes:
+          - "text/event-stream"
+
+  routers:
+
+    site:
+      rule: "Host(`borisovai.ru`) || Host(`borisovai.tech`)"
+      service: site-frontend
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - site-compress
+
+    site-api:
+      rule: "Host(`api.borisovai.ru`) || Host(`api.borisovai.tech`)"
+      service: site-api
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - site-compress
+
+  services:
+    site-frontend:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:4001"
+    site-api:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:4002"

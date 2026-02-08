@@ -109,7 +109,8 @@ safe_execute() {
         save_install_state "$step_name" "completed"
         return 0
     else
-        local exit_code=$?
+        local exit_code
+        exit_code=$?
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Ошибка: $step_name (код: $exit_code)" >> "$INSTALL_LOG_FILE"
         save_install_state "$step_name" "failed"
         return $exit_code

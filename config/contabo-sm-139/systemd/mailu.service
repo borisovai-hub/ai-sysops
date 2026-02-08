@@ -1,0 +1,19 @@
+[Unit]
+Description=Mailu Mail Server
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/mailu
+TimeoutStartSec=600
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/bash -c 'docker compose -f /opt/mailu/docker-compose.yml --env-file /opt/mailu/mailu.env up -d'
+ExecStop=/usr/bin/bash -c 'docker compose -f /opt/mailu/docker-compose.yml --env-file /opt/mailu/mailu.env down'
+ExecReload=/usr/bin/bash -c 'docker compose -f /opt/mailu/docker-compose.yml --env-file /opt/mailu/mailu.env restart'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

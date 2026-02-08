@@ -5,7 +5,7 @@
 ## Подключение
 
 ```
-Base URL:  https://admin.borisovai.ru  (или http://127.0.0.1:3000 с сервера)
+Base URL:  https://admin.borisovai.ru  или  https://admin.borisovai.tech  (или http://127.0.0.1:3000 с сервера)
 Auth:      Bearer-токен (рекомендуется) или Cookie-сессия
 ```
 
@@ -39,23 +39,39 @@ curl -b cookies.txt http://127.0.0.1:3000/api/auth/check
 
 Management UI управляет Traefik через file provider: создаёт/редактирует YAML-конфиги в `/etc/traefik/dynamic/`. Traefik отслеживает изменения через watch и применяет их автоматически.
 
+**Мульти-домен**: при создании сервиса без явного домена, server.js автоматически генерирует домены для всех `base_domains` из `/etc/install-config.json` (например, `slug.borisovai.ru` и `slug.borisovai.tech`). Traefik rule содержит `Host(...) || Host(...)`. DNS-записи создаются для каждого базового домена.
+
 ### Получить список сервисов
 
 ```bash
 curl -H "Authorization: Bearer <токен>" http://127.0.0.1:3000/api/services
 ```
 
-Ответ:
+Ответ (возвращаются все роутеры из каждого YAML, включая multi-router файлы вроде `site.yml`):
 
 ```json
 {
   "services": [
     {
-      "name": "my-app",
-      "domain": "my-app.borisovai.ru",
-      "backend": "http://127.0.0.1:4010",
-      "tls": true,
-      "enabled": true
+      "name": "management-ui",
+      "domain": "admin.borisovai.ru, admin.borisovai.tech",
+      "internalIp": "127.0.0.1",
+      "port": "3000",
+      "configFile": "management-ui.yml"
+    },
+    {
+      "name": "site",
+      "domain": "borisovai.ru, borisovai.tech",
+      "internalIp": "127.0.0.1",
+      "port": "4001",
+      "configFile": "site.yml"
+    },
+    {
+      "name": "site-api",
+      "domain": "api.borisovai.ru, api.borisovai.tech",
+      "internalIp": "127.0.0.1",
+      "port": "4002",
+      "configFile": "site.yml"
     }
   ]
 }

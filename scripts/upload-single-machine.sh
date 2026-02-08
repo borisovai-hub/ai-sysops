@@ -63,6 +63,96 @@ save_config_value() {
     fi
 }
 
+# Простой парсер для плоских YAML файлов (key: "value" или key: value)
+parse_yaml_value() {
+    local key="$1"
+    local file="$2"
+    if [ -f "$file" ]; then
+        grep "^${key}:" "$file" 2>/dev/null | sed 's/^[^:]*:[[:space:]]*//' | sed 's/^"//;s/"$//' | sed 's/\r//g'
+    else
+        echo ""
+    fi
+}
+
+# Директория с описаниями серверов
+SERVERS_DIR="$PROJECT_ROOT/config/servers"
+
+# Поиск серверов из config/servers/*/env.yml
+select_server() {
+    if [ ! -d "$SERVERS_DIR" ]; then
+        return 1
+    fi
+
+    local server_ids=()
+    local server_hosts=()
+    local server_users=()
+    local server_domains=()
+    local server_configs=()
+
+    for env_file in "$SERVERS_DIR"/*/env.yml; do
+        [ -f "$env_file" ] || continue
+        local sid=$(basename "$(dirname "$env_file")")
+        local host=$(parse_yaml_value "ssh_host" "$env_file")
+        [ -z "$host" ] && continue
+        server_ids+=("$sid")
+        server_hosts+=("$host")
+        server_users+=("$(parse_yaml_value "ssh_user" "$env_file")")
+        server_domains+=("$(parse_yaml_value "base_domain" "$env_file")")
+        server_configs+=("$(parse_yaml_value "config_dir" "$env_file")")
+    done
+
+    local count=${#server_ids[@]}
+    if [ "$count" -eq 0 ]; then
+        return 1
+    fi
+
+    echo ""
+    echo "Доступные серверы:"
+    local i
+    for i in $(seq 0 $((count - 1))); do
+        echo "  $((i + 1))) ${server_ids[$i]} (${server_hosts[$i]}) - ${server_domains[$i]:-без домена}"
+    done
+
+    local saved_server=$(get_config_value "selected_server")
+    local default_choice=""
+    if [ -n "$saved_server" ]; then
+        for i in $(seq 0 $((count - 1))); do
+            if [ "${server_ids[$i]}" = "$saved_server" ]; then
+                default_choice=$((i + 1))
+                break
+            fi
+        done
+    fi
+
+    local choice
+    if [ -n "$default_choice" ]; then
+        read -p "Выберите сервер (1-$count) [$default_choice]: " choice
+        [ -z "$choice" ] && choice="$default_choice"
+    else
+        read -p "Выберите сервер (1-$count): " choice
+    fi
+
+    if [ "$choice" -ge 1 ] 2>/dev/null && [ "$choice" -le "$count" ] 2>/dev/null; then
+        local idx=$((choice - 1))
+        local selected="${server_ids[$idx]}"
+        SERVER_IP="${server_hosts[$idx]}"
+        USERNAME="${server_users[$idx]}"
+        [ -z "$USERNAME" ] && USERNAME="root"
+        SELECTED_CONFIG_DIR="${server_configs[$idx]}"
+        save_config_value "selected_server" "$selected"
+        save_config_value "server_ip" "$SERVER_IP"
+        save_config_value "username" "$USERNAME"
+        [ -n "$SELECTED_CONFIG_DIR" ] && save_config_value "config_dir" "$SELECTED_CONFIG_DIR"
+        echo ""
+        echo "Выбран сервер: $selected ($USERNAME@$SERVER_IP)"
+        [ -n "$SELECTED_CONFIG_DIR" ] && echo "  Конфиги: $SELECTED_CONFIG_DIR"
+        return 0
+    else
+        echo "Неверный выбор"
+        return 1
+    fi
+}
+
 prompt_with_default() {
     local prompt="$1"
     local key="$2"
@@ -122,13 +212,18 @@ FILES=(
     "$SCRIPT_DIR/single-machine/configure-gitlab-smtp-quick.sh"
     "$SCRIPT_DIR/single-machine/add-ssl-domains.sh"
     "$SCRIPT_DIR/single-machine/manage-base-domains.sh"
-    "$SCRIPT_DIR/single-machine/fix-mtu-issue.sh",
+    "$SCRIPT_DIR/single-machine/fix-mtu-issue.sh"
     "$SCRIPT_DIR/single-machine/disable-http2-traefik.sh"
+    "$SCRIPT_DIR/single-machine/install-frps.sh"
 )
 MANAGEMENT_UI_PATH="$PROJECT_ROOT/management-ui"
 DNS_API_PATH="$SCRIPT_DIR/dns-api"
 CONFIG_CICD_PATH="$PROJECT_ROOT/config/single-machine/cicd"
 CONFIG_TRAEFIK_DYNAMIC_PATH="$PROJECT_ROOT/config/single-machine/traefik/dynamic"
+
+# Конфиги сервера (определяются после выбора сервера, пока дефолтные)
+SELECTED_CONFIG_DIR=""
+SERVER_CONFIG_PATH=""
 
 echo "Проверка файлов для загрузки..."
 MISSING_FILES=0
@@ -174,15 +269,25 @@ if [ "$AUTO_MODE" = true ]; then
     fi
     
     [ -z "$REMOTE_PATH" ] && REMOTE_PATH="~/install"
+    SELECTED_CONFIG_DIR=$(get_config_value "config_dir")
     echo "Автоматический режим: используем сохранённые данные"
     echo "  Сервер: ${USERNAME}@${SERVER_IP}"
     echo "  Путь: ${REMOTE_PATH}"
+    [ -n "$SELECTED_CONFIG_DIR" ] && echo "  Конфиги: ${SELECTED_CONFIG_DIR}"
 else
-    SERVER_IP=$(prompt_with_default "Введите IP адрес сервера" "server_ip")
-    USERNAME=$(prompt_with_default "Введите имя пользователя (обычно root)" "username" "root")
+    # Попытка выбрать сервер из config/servers/*/env.yml
+    if select_server; then
+        # SERVER_IP и USERNAME установлены из select_server
+        :
+    else
+        # Ручной ввод (если серверы не найдены)
+        SERVER_IP=$(prompt_with_default "Введите IP адрес сервера" "server_ip")
+        USERNAME=$(prompt_with_default "Введите имя пользователя (обычно root)" "username" "root")
+    fi
+
     REMOTE_PATH=$(prompt_with_default "Введите путь на сервере" "remote_path" "~/install")
     [ -z "$REMOTE_PATH" ] && REMOTE_PATH="~/install"
-    
+
     echo ""
     echo "Выберите метод аутентификации:"
     echo "1) SSH ключ"
@@ -207,6 +312,13 @@ if [ "$AUTH_METHOD" = "1" ] || ([ "$AUTO_MODE" = true ] && [ "$AUTH_METHOD" = "1
 elif [ "$AUTO_MODE" != true ]; then
     save_config_value "auth_method" "2"
     echo "Будет запрошен пароль при подключении"
+fi
+
+# Определяем путь к конфигам выбранного сервера
+if [ -n "$SELECTED_CONFIG_DIR" ] && [ -d "$PROJECT_ROOT/$SELECTED_CONFIG_DIR" ]; then
+    SERVER_CONFIG_PATH="$PROJECT_ROOT/$SELECTED_CONFIG_DIR"
+    echo ""
+    echo "Конфиги сервера: $SELECTED_CONFIG_DIR"
 fi
 
 # Формирование команды SCP
@@ -388,15 +500,25 @@ upload_directory_if_changed() {
     fi
 }
 
+# Подсчёт шагов
+TOTAL_STEPS=7
+[ -n "$SERVER_CONFIG_PATH" ] && TOTAL_STEPS=10
+STEP=0
+
+next_step() {
+    STEP=$((STEP + 1))
+    echo "  ${STEP}/${TOTAL_STEPS} $1"
+}
+
 # Создание директорий на сервере
-echo "  1/7 Создание директорий..."
+next_step "Создание директорий..."
 if ! do_ssh "mkdir -p ${REMOTE_PATH}/scripts/single-machine ${REMOTE_PATH}/scripts/dns-api ${REMOTE_PATH}/config/single-machine/cicd ${REMOTE_PATH}/config/single-machine/traefik/dynamic"; then
     echo "  [ОШИБКА] Не удалось подключиться по SSH или создать директории"
     UPLOAD_FAILED=1
 fi
 
 if [ $UPLOAD_FAILED -eq 0 ]; then
-    echo "  2/7 Загрузка скриптов single-machine..."
+    next_step "Загрузка скриптов single-machine..."
     FILES_TO_UPLOAD=()
     for file in "${FILES[@]}"; do
         if [ -f "$file" ]; then
@@ -427,7 +549,7 @@ if [ $UPLOAD_FAILED -eq 0 ]; then
 fi
 
 if [ $UPLOAD_FAILED -eq 0 ]; then
-    echo "  3/7 Загрузка management-ui..."
+    next_step "Загрузка management-ui..."
     if upload_directory_if_changed "$MANAGEMENT_UI_PATH" "${REMOTE_PATH}/management-ui" "management-ui"; then
         if [ "$CHECK_ONLY" != true ]; then
             if ! do_scp -r "$MANAGEMENT_UI_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/"; then
@@ -442,7 +564,7 @@ if [ $UPLOAD_FAILED -eq 0 ]; then
 fi
 
 if [ $UPLOAD_FAILED -eq 0 ]; then
-    echo "  4/7 Загрузка dns-api..."
+    next_step "Загрузка dns-api..."
     if upload_directory_if_changed "$DNS_API_PATH" "${REMOTE_PATH}/scripts/dns-api" "dns-api"; then
         if [ "$CHECK_ONLY" != true ]; then
             if ! do_scp -r "$DNS_API_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/scripts/"; then
@@ -459,7 +581,7 @@ fi
 ROUNDCUBE_CALENDAR_LINK="$SCRIPT_DIR/single-machine/roundcube-calendar-link"
 if [ $UPLOAD_FAILED -eq 0 ]; then
     if [ -d "$ROUNDCUBE_CALENDAR_LINK" ]; then
-        echo "  5/7 Загрузка roundcube-calendar-link (плагин календаря)..."
+        next_step "Загрузка roundcube-calendar-link (плагин календаря)..."
         if upload_directory_if_changed "$ROUNDCUBE_CALENDAR_LINK" "${REMOTE_PATH}/scripts/single-machine/roundcube-calendar-link" "roundcube-calendar-link"; then
             if [ "$CHECK_ONLY" != true ]; then
                 if ! do_scp -r "$ROUNDCUBE_CALENDAR_LINK" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/scripts/single-machine/"; then
@@ -472,12 +594,12 @@ if [ $UPLOAD_FAILED -eq 0 ]; then
             fi
         fi
     else
-        echo "  5/7 [Пропуск] roundcube-calendar-link не найдена (опционально)"
+        next_step "[Пропуск] roundcube-calendar-link не найдена (опционально)"
     fi
 fi
 
 if [ $UPLOAD_FAILED -eq 0 ] && [ -d "$CONFIG_CICD_PATH" ]; then
-    echo "  6/7 Загрузка config/cicd..."
+    next_step "Загрузка config/cicd..."
     if ! do_ssh "mkdir -p ${REMOTE_PATH}/config/single-machine/cicd"; then
         echo "  [ОШИБКА] Не удалось создать директорию для config/cicd"
         UPLOAD_FAILED=1
@@ -495,11 +617,11 @@ if [ $UPLOAD_FAILED -eq 0 ] && [ -d "$CONFIG_CICD_PATH" ]; then
         fi
     fi
 elif [ ! -d "$CONFIG_CICD_PATH" ]; then
-    echo "  6/7 [Пропуск] config/cicd не найдена (опционально)"
+    next_step "[Пропуск] config/cicd не найдена (опционально)"
 fi
 
 if [ $UPLOAD_FAILED -eq 0 ] && [ -d "$CONFIG_TRAEFIK_DYNAMIC_PATH" ]; then
-    echo "  7/7 Загрузка config/traefik/dynamic..."
+    next_step "Загрузка config/traefik/dynamic..."
     if upload_directory_if_changed "$CONFIG_TRAEFIK_DYNAMIC_PATH" "${REMOTE_PATH}/config/single-machine/traefik/dynamic" "config/traefik/dynamic"; then
         if [ "$CHECK_ONLY" != true ]; then
             if ! do_scp -r "$CONFIG_TRAEFIK_DYNAMIC_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/config/single-machine/traefik/"; then
@@ -512,7 +634,70 @@ if [ $UPLOAD_FAILED -eq 0 ] && [ -d "$CONFIG_TRAEFIK_DYNAMIC_PATH" ]; then
         fi
     fi
 elif [ ! -d "$CONFIG_TRAEFIK_DYNAMIC_PATH" ]; then
-    echo "  7/7 [Пропуск] config/traefik/dynamic не найдена (опционально)"
+    next_step "[Пропуск] config/traefik/dynamic не найдена (опционально)"
+fi
+
+# === Загрузка конфигов выбранного сервера (из config/<server-id>/) ===
+if [ $UPLOAD_FAILED -eq 0 ] && [ -n "$SERVER_CONFIG_PATH" ] && [ -d "$SERVER_CONFIG_PATH" ]; then
+    # Traefik конфиги сервера
+    SERVER_TRAEFIK_PATH="$SERVER_CONFIG_PATH/traefik"
+    if [ -d "$SERVER_TRAEFIK_PATH" ]; then
+        next_step "Загрузка конфигов Traefik сервера ($SELECTED_CONFIG_DIR)..."
+        if ! do_ssh "mkdir -p ${REMOTE_PATH}/${SELECTED_CONFIG_DIR}/traefik/dynamic"; then
+            echo "  [ОШИБКА] Не удалось создать директорию"
+            UPLOAD_FAILED=1
+        else
+            if upload_directory_if_changed "$SERVER_TRAEFIK_PATH" "${REMOTE_PATH}/${SELECTED_CONFIG_DIR}/traefik" "server-traefik"; then
+                if ! do_scp -r "$SERVER_TRAEFIK_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/${SELECTED_CONFIG_DIR}/"; then
+                    echo "  [ОШИБКА] Не удалось загрузить конфиги Traefik"
+                    UPLOAD_FAILED=1
+                else
+                    save_dir_mtimes_to_cache "$SERVER_TRAEFIK_PATH" "server-traefik"
+                    echo "  [OK] Traefik конфиги сервера загружены"
+                fi
+            fi
+        fi
+    fi
+
+    # Systemd-сервисы
+    SERVER_SYSTEMD_PATH="$SERVER_CONFIG_PATH/systemd"
+    if [ $UPLOAD_FAILED -eq 0 ] && [ -d "$SERVER_SYSTEMD_PATH" ]; then
+        next_step "Загрузка systemd-сервисов ($SELECTED_CONFIG_DIR)..."
+        if ! do_ssh "mkdir -p ${REMOTE_PATH}/${SELECTED_CONFIG_DIR}/systemd"; then
+            echo "  [ОШИБКА] Не удалось создать директорию"
+            UPLOAD_FAILED=1
+        else
+            if upload_directory_if_changed "$SERVER_SYSTEMD_PATH" "${REMOTE_PATH}/${SELECTED_CONFIG_DIR}/systemd" "server-systemd"; then
+                if ! do_scp -r "$SERVER_SYSTEMD_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/${SELECTED_CONFIG_DIR}/"; then
+                    echo "  [ОШИБКА] Не удалось загрузить systemd-сервисы"
+                    UPLOAD_FAILED=1
+                else
+                    save_dir_mtimes_to_cache "$SERVER_SYSTEMD_PATH" "server-systemd"
+                    echo "  [OK] systemd-сервисы загружены"
+                fi
+            fi
+        fi
+    fi
+
+    # Mailu конфиги
+    SERVER_MAILU_PATH="$SERVER_CONFIG_PATH/mailu"
+    if [ $UPLOAD_FAILED -eq 0 ] && [ -d "$SERVER_MAILU_PATH" ]; then
+        next_step "Загрузка конфигов Mailu ($SELECTED_CONFIG_DIR)..."
+        if ! do_ssh "mkdir -p ${REMOTE_PATH}/${SELECTED_CONFIG_DIR}/mailu"; then
+            echo "  [ОШИБКА] Не удалось создать директорию"
+            UPLOAD_FAILED=1
+        else
+            if upload_directory_if_changed "$SERVER_MAILU_PATH" "${REMOTE_PATH}/${SELECTED_CONFIG_DIR}/mailu" "server-mailu"; then
+                if ! do_scp -r "$SERVER_MAILU_PATH" "${USERNAME}@${SERVER_IP}:${REMOTE_PATH}/${SELECTED_CONFIG_DIR}/"; then
+                    echo "  [ОШИБКА] Не удалось загрузить конфиги Mailu"
+                    UPLOAD_FAILED=1
+                else
+                    save_dir_mtimes_to_cache "$SERVER_MAILU_PATH" "server-mailu"
+                    echo "  [OK] Mailu конфиги загружены"
+                fi
+            fi
+        fi
+    fi
 fi
 
 if [ $UPLOAD_FAILED -eq 0 ]; then

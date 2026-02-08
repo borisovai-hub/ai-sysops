@@ -1,0 +1,43 @@
+external_url 'https://gitlab.dev.borisovai.tech'
+gitlab_rails['smtp_enable'] = true
+gitlab_rails['smtp_address'] = "mail.dev.borisovai.ru"
+gitlab_rails['smtp_port'] = 465
+gitlab_rails['smtp_user_name'] = "gitlab@borisovai.ru"
+gitlab_rails['smtp_password'] = "{{SMTP_PASSWORD}}"
+gitlab_rails['smtp_domain'] = "borisovai.ru"
+gitlab_rails['smtp_authentication'] = "login"
+gitlab_rails['smtp_enable_starttls_auto'] = false
+gitlab_rails['smtp_tls'] = true
+gitlab_rails['smtp_openssl_verify_mode'] = 'peer'
+gitlab_rails['gitlab_email_from'] = "gitlab@borisovai.ru"
+gitlab_rails['gitlab_email_display_name'] = "GitLab"
+gitlab_rails['gitlab_email_reply_to'] = "gitlab@borisovai.ru"
+gitlab_pages['enable'] = true
+gitlab_pages['internal_gitlab_server'] = 'https://gitlab.dev.borisovai.ru'
+pages_external_url 'https://gitlab.dev.borisovai.ru'
+nginx['listen_port'] = 8888
+nginx['listen_https'] = false
+nginx['listen_addresses'] = ['127.0.0.1']
+nginx['proxy_set_headers'] = {
+  "Host" => "$http_host",
+  "X-Real-IP" => "$remote_addr",
+  "X-Forwarded-For" => "$proxy_add_x_forwarded_for",
+  "X-Forwarded-Proto" => "https",
+  "X-Forwarded-Ssl" => "on",
+  "X-Forwarded-Host" => "$http_host"
+}
+nginx['ssl'] = false
+nginx['redirect_http_to_https'] = false
+puma['port'] = 8090
+puma['listen'] = '127.0.0.1'
+gitlab_rails['trusted_proxies'] = ['127.0.0.1']
+letsencrypt['enable'] = false
+gitlab_pages['enable'] = true
+pages_external_url 'https://public.gitlab.dev.borisovai.tech'
+gitlab_pages['internal_gitlab_server'] = 'http://127.0.0.1:8888'
+gitlab_pages['api_secret_key'] = nil  # GitLab сгенерирует автоматически
+gitlab_pages['listen_proxy'] = '127.0.0.1:8889'
+gitlab_pages['external_http'] = []
+gitlab_pages['external_https'] = []
+gitlab_pages['https'] = false
+pages_nginx['enable'] = false

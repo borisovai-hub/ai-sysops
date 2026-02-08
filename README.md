@@ -10,26 +10,32 @@
 
 ### Установка и настройка
 
-- **[docs/INSTALLATION.md](docs/INSTALLATION.md)** - Инструкция по установке (Proxmox)
-- **[docs/PROXMOX_SETUP.md](docs/PROXMOX_SETUP.md)** - Настройка Proxmox VE 7
-- **[docs/QUICK_START_GUIDE.md](docs/QUICK_START_GUIDE.md)** - Быстрое руководство
-- **[docs/REMOTE_WORK.md](docs/REMOTE_WORK.md)** - Работа с сервером через Remote-SSH
+- **[docs/setup/INSTALLATION.md](docs/setup/INSTALLATION.md)** - Инструкция по установке (Proxmox)
+- **[docs/setup/PROXMOX_SETUP.md](docs/setup/PROXMOX_SETUP.md)** - Настройка Proxmox VE 7
+- **[docs/setup/QUICK_START_GUIDE.md](docs/setup/QUICK_START_GUIDE.md)** - Быстрое руководство
+- **[docs/setup/REMOTE_WORK.md](docs/setup/REMOTE_WORK.md)** - Работа с сервером через Remote-SSH
 
 ### Инструкции для агентов
 
-- **[docs/AGENT_ORCHESTRATOR.md](docs/AGENT_ORCHESTRATOR.md)** - Регистрация проектов (One-Click Publish)
-- **[docs/AGENT_GITOPS.md](docs/AGENT_GITOPS.md)** - CI/CD деплой borisovai-admin
-- **[docs/AGENT_SERVICES.md](docs/AGENT_SERVICES.md)** - Управление сервисами и DNS
-- **[docs/AGENT_API_GUIDE.md](docs/AGENT_API_GUIDE.md)** - Публикация контента через Strapi API
-- **[docs/AGENT_PUBLISH_SETUP.md](docs/AGENT_PUBLISH_SETUP.md)** - Настройка деплоя borisovai-site
+- **[docs/agents/AGENT_ORCHESTRATOR.md](docs/agents/AGENT_ORCHESTRATOR.md)** - Регистрация проектов (One-Click Publish)
+- **[docs/agents/AGENT_GITOPS.md](docs/agents/AGENT_GITOPS.md)** - CI/CD деплой borisovai-admin
+- **[docs/agents/AGENT_SERVICES.md](docs/agents/AGENT_SERVICES.md)** - Управление сервисами и DNS
+- **[docs/agents/AGENT_API_GUIDE.md](docs/agents/AGENT_API_GUIDE.md)** - Публикация контента через Strapi API
+- **[docs/agents/AGENT_PUBLISH_SETUP.md](docs/agents/AGENT_PUBLISH_SETUP.md)** - Настройка деплоя borisovai-site
+
+### DNS
+
+- **[docs/dns/DNS_MAIL_SETUP.md](docs/dns/DNS_MAIL_SETUP.md)** - DNS для Mailu (MX, SPF, DKIM, DMARC)
+- **[docs/dns/DNS_SITE_SETUP.md](docs/dns/DNS_SITE_SETUP.md)** - DNS для сайта (NS, A-записи, Cloudflare)
+- **[docs/dns/DNS_TROUBLESHOOTING.md](docs/dns/DNS_TROUBLESHOOTING.md)** - Диагностика DNS
 
 ### Прочее
 
-- **[docs/POWERSHELL_SETUP.md](docs/POWERSHELL_SETUP.md)** - Настройка PowerShell
-- **[docs/POWERSHELL_ENCODING.md](docs/POWERSHELL_ENCODING.md)** - Проблемы с кодировкой PowerShell
-- **[docs/INSTALL_SSH_COPY_ID.md](docs/INSTALL_SSH_COPY_ID.md)** - Установка ssh-copy-id
+- **[docs/troubleshooting/POWERSHELL_SETUP.md](docs/troubleshooting/POWERSHELL_SETUP.md)** - Настройка PowerShell
+- **[docs/troubleshooting/POWERSHELL_ENCODING.md](docs/troubleshooting/POWERSHELL_ENCODING.md)** - Проблемы с кодировкой PowerShell
+- **[docs/setup/INSTALL_SSH_COPY_ID.md](docs/setup/INSTALL_SSH_COPY_ID.md)** - Установка ssh-copy-id
 - **[docs/UPLOAD_EXAMPLES.md](docs/UPLOAD_EXAMPLES.md)** - Примеры скриптов загрузки
-- **[docs/VSCODE_FIX.md](docs/VSCODE_FIX.md)** - Исправление ошибки ICU в VS Code
+- **[docs/troubleshooting/VSCODE_FIX.md](docs/troubleshooting/VSCODE_FIX.md)** - Исправление ошибки ICU в VS Code
 - **[docs/CHANGELOG_SINGLE_MACHINE.md](docs/CHANGELOG_SINGLE_MACHINE.md)** - История изменений
 
 ## Структура проекта

@@ -18,7 +18,7 @@
 ## 1. Предусловия
 
 - Репозиторий клонирован, ветки `dev` и `master` существуют.
-- На сервере установлены: Node.js 20+, PM2, Nginx, GitLab Runner (см. [README.md](../README.md) — Production Deployment).
+- На сервере установлены: Node.js 20+, PM2, Nginx, GitLab Runner (см. [README.md](../../README.md) — Production Deployment).
 - В GitLab настроены CI/CD Variables (тип File): `FRONTEND_ENV`, `BACKEND_ENV`; Variable: `DEPLOY_PATH`.
 
 ---
@@ -101,7 +101,7 @@ Runner должен быть с тегами `deploy-staging` или `deploy-pro
 3. Убедиться, что PM2 настроен для пользователя runner: `pm2 startup` и выполнить выведенную команду
 4. После первого успешного деплоя: `pm2 save`
 
-Подробнее: [README.md — Настройка сервера, GitLab CI/CD](../README.md).
+Подробнее: [README.md — Настройка сервера, GitLab CI/CD](../../README.md).
 
 ---
 

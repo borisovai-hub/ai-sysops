@@ -1,0 +1,14 @@
+http:
+  routers:
+    admin:
+      rule: Host(`admin.borisovai.tech`)
+      service: admin
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+  services:
+    admin:
+      loadBalancer:
+        servers:
+          - url: http://127.0.0.1:3000

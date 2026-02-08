@@ -5,7 +5,7 @@
 - **Management UI** — Express.js сервер (порт 3000), развёртывается в `/opt/management-ui/`
 - **Traefik** — reverse proxy, конфиги в `/etc/traefik/dynamic/` (file provider + watch)
 - **GitLab CE** — self-hosted, CI/CD с shell runner
-- **DNS** — управление через CLI `manage-dns` и локальный DNS API
+- **DNS** — управление через CLI `manage-dns` и локальный DNS API (порт 5353)
 - **Основной сайт** — Next.js 16 + Strapi v5 (borisovai-site), деплой в `/var/www/borisovai-site/`
 
 ## Стек и соглашения
@@ -26,14 +26,38 @@
 4. **Идемпотентность** — все операции (создание DNS, Traefik, CI) должны быть идемпотентными
 5. **Обратная совместимость** — изменения в server.js не должны ломать существующие endpoints (`/api/services`, `/api/dns`)
 
+## Мульти-домен (base_domains)
+
+Все сервисы доступны по двум базовым доменам: `borisovai.ru` и `borisovai.tech`.
+
+- **Источник**: `/etc/install-config.json` → `base_domains: "borisovai.ru,borisovai.tech"`
+- **Bash-скрипты**: `common.sh` → `get_base_domains()`, `build_service_domains()`, `create_dns_records_for_domains()`
+- **server.js**: читает `/etc/install-config.json` → `getBaseDomains()`, `buildAllDomains(prefix)`, `createDnsRecordsForAllDomains()`
+- **Traefik**: правила генерируются с `||` — `Host(`slug.borisovai.ru`) || Host(`slug.borisovai.tech`)`
+- **DNS**: записи создаются для каждого base_domain через DNS API
+- **Управление**: `scripts/single-machine/manage-base-domains.sh` (add/remove/list/site/apply)
+- **Traefik-конфиги**: `scripts/single-machine/configure-traefik.sh` (без аргументов читает base_domains из конфига, `--force` пересоздаёт все)
+
+### Сервисы на сервере
+
+| Сервис | Префикс.Middle | Домены |
+|--------|----------------|--------|
+| Management UI | admin | admin.borisovai.ru, admin.borisovai.tech |
+| Сайт (frontend) | (apex) | borisovai.ru, borisovai.tech |
+| Сайт (API) | api | api.borisovai.ru, api.borisovai.tech |
+| GitLab | gitlab.dev | gitlab.dev.borisovai.ru, gitlab.dev.borisovai.tech |
+| n8n | n8n.dev | n8n.dev.borisovai.ru, n8n.dev.borisovai.tech |
+| Mailu | mail.dev | mail.dev.borisovai.ru, mail.dev.borisovai.tech |
+| frps (туннели) | tunnel | *.tunnel.borisovai.ru, *.tunnel.borisovai.tech |
+
 ## Реализованные функции
 
 ### One-Click Publish
 
 Оркестратор регистрации проектов с автоматической настройкой DNS, Traefik, CI/CD и Strapi.
 
-- **План**: [docs/PLAN_ONE_CLICK_PUBLISH.md](docs/PLAN_ONE_CLICK_PUBLISH.md)
-- **ТЗ**: [docs/TZ_ONE_CLICK_PUBLISH.md](docs/TZ_ONE_CLICK_PUBLISH.md)
+- **План**: [docs/plans/PLAN_ONE_CLICK_PUBLISH.md](docs/plans/PLAN_ONE_CLICK_PUBLISH.md)
+- **ТЗ**: [docs/plans/TZ_ONE_CLICK_PUBLISH.md](docs/plans/TZ_ONE_CLICK_PUBLISH.md)
 - **UI**: `management-ui/public/projects.html`
 - **API**: `POST /api/publish/projects`, `GET /api/publish/projects`, `DELETE /api/publish/projects/:slug`, `PUT /api/publish/projects/:slug/update-ci`
 - **Шаблоны CI**: `management-ui/templates/*.gitlab-ci.yml` (frontend, backend, fullstack, docs, validate, product)
@@ -43,35 +67,77 @@
 
 Автодеплой borisovai-admin на сервер при push в main.
 
-- **План**: [docs/PLAN_GITOPS.md](docs/PLAN_GITOPS.md)
+- **План**: [docs/plans/PLAN_GITOPS.md](docs/plans/PLAN_GITOPS.md)
 - **Pipeline**: `.gitlab-ci.yml` — validate → deploy → verify
 - **Конфиг-шаблоны**: `config/single-machine/management-ui.config.json`, `dns-api.config.json`
 - **CI скрипты**: `scripts/ci/render-configs.sh`, `deploy-management-ui.sh`, `deploy-dns-api.sh`, `health-check.sh`
 - **Секреты**: GitLab CI Variables (GITLAB_TOKEN, STRAPI_TOKEN — masked)
 - **Динамические данные** (не перезаписываются): projects.json, auth.json, records.json
 
+### frp Tunneling
+
+Self-hosted туннелирование (замена ngrok) — проброс локальных сервисов через сервер.
+
+- **Исследование**: [docs/plans/RESEARCH_TUNNELING.md](docs/plans/RESEARCH_TUNNELING.md)
+- **Скрипт установки**: `scripts/single-machine/install-frps.sh` (`--force` для переустановки)
+- **Конфиг сервера**: `/etc/frp/frps.toml`
+- **Traefik**: `/etc/traefik/dynamic/tunnels.yml` (wildcard HostRegexp)
+- **Клиент-шаблон**: `config/frpc-template/frpc.toml`
+- **Порты**: 17420 (control), 17480 (vhost HTTP за Traefik), 17490 (dashboard localhost)
+- **Systemd**: `frps.service`
+- **UI**: `management-ui/public/tunnels.html`
+- **API**: `GET /api/tunnels/status`, `GET /api/tunnels/proxies`, `GET /api/tunnels/config`, `GET /api/tunnels/client-config`
+
+## Установка и обновление
+
+- **Скрипт**: `scripts/single-machine/install-management-ui.sh [--force]`
+- `--force` — обновляет файлы приложения и перезапускает сервис
+- **auth.json** — создаётся только при первой установке, не перезаписывается (пароль и bearer-токены сохраняются)
+- **config.json** — при наличии показывает текущие значения и спрашивает `Переписать конфигурацию? (y/N)`. Токены маскируются. Существующие значения используются как дефолты
+- **projects.json** — не перезаписывается (динамические данные)
+
 ## Ключевые файлы
 
-- `management-ui/server.js` — основной сервер, все API endpoints (~900 строк)
-- `management-ui/public/index.html` — UI сервисов
+- `management-ui/server.js` — основной сервер, все API endpoints (~1150 строк)
+- `management-ui/public/index.html` — UI сервисов (отображает все роутеры из Traefik YAML)
 - `management-ui/public/dns.html` — UI DNS
 - `management-ui/public/projects.html` — UI регистрации проектов
+- `management-ui/public/tunnels.html` — UI управления туннелями (frp)
+- `management-ui/public/tokens.html` — UI управления bearer-токенами
 - `management-ui/templates/*.gitlab-ci.yml` — CI-шаблоны для целевых проектов
 - `scripts/single-machine/install-management-ui.sh` — установка (копирует management-ui/ → /opt/management-ui/)
+- `scripts/single-machine/configure-traefik.sh` — генерация Traefik-конфигов для всех сервисов
+- `scripts/single-machine/manage-base-domains.sh` — управление списком базовых доменов
+- `scripts/single-machine/common.sh` — общие функции (base_domains, install state, config)
+- `scripts/single-machine/install-frps.sh` — установка frp server (туннелирование)
 - `.gitlab-ci.yml` — CI/CD pipeline для borisovai-admin
 
 ## Данные
 
 - Реестр проектов: `/etc/management-ui/projects.json`
 - Конфигурация: `/etc/management-ui/config.json` (поля: gitlab_url, gitlab_token, strapi_url, strapi_token, base_port, runner_tag, main_site_path, deploy_base_path)
-- Авторизация: `/etc/management-ui/auth.json` (генерируется при установке)
+- Конфигурация установки: `/etc/install-config.json` (base_domains, prefixes, middle-сегменты, ports)
+- Авторизация: `/etc/management-ui/auth.json` (пароль + bearer-токены)
 - Traefik конфиги: `/etc/traefik/dynamic/<slug>.yml`
 - В целевых GitLab-проектах: `.gitlab-ci.yml` (include:local) + `.gitlab/ci/pipeline.yml` (полный пайплайн)
 
 ## Инструкции для агентов
 
-- [docs/AGENT_ORCHESTRATOR.md](docs/AGENT_ORCHESTRATOR.md) — регистрация проектов через API
-- [docs/AGENT_GITOPS.md](docs/AGENT_GITOPS.md) — CI/CD деплой borisovai-admin
-- [docs/AGENT_SERVICES.md](docs/AGENT_SERVICES.md) — управление сервисами и DNS
-- [docs/AGENT_API_GUIDE.md](docs/AGENT_API_GUIDE.md) — публикация контента через Strapi API
-- [docs/AGENT_PUBLISH_SETUP.md](docs/AGENT_PUBLISH_SETUP.md) — настройка деплоя borisovai-site
+- [docs/agents/AGENT_ORCHESTRATOR.md](docs/agents/AGENT_ORCHESTRATOR.md) — регистрация проектов через API
+- [docs/agents/AGENT_GITOPS.md](docs/agents/AGENT_GITOPS.md) — CI/CD деплой borisovai-admin
+- [docs/agents/AGENT_SERVICES.md](docs/agents/AGENT_SERVICES.md) — управление сервисами и DNS
+- [docs/agents/AGENT_API_GUIDE.md](docs/agents/AGENT_API_GUIDE.md) — публикация контента через Strapi API
+- [docs/agents/AGENT_PUBLISH_SETUP.md](docs/agents/AGENT_PUBLISH_SETUP.md) — настройка деплоя borisovai-site
+
+## Дополнительная документация
+
+- [docs/setup/INSTALLATION.md](docs/setup/INSTALLATION.md) — полная установка (GitLab, Traefik, DNS API, Management UI)
+- [docs/setup/QUICK_START_GUIDE.md](docs/setup/QUICK_START_GUIDE.md) — быстрый старт (~25 минут)
+- [docs/dns/DNS_MAIL_SETUP.md](docs/dns/DNS_MAIL_SETUP.md) — DNS для Mailu (MX, SPF, DKIM, DMARC)
+- [docs/dns/DNS_SITE_SETUP.md](docs/dns/DNS_SITE_SETUP.md) — DNS для сайта (NS, A-записи, Cloudflare)
+- [docs/dns/DNS_TROUBLESHOOTING.md](docs/dns/DNS_TROUBLESHOOTING.md) — диагностика DNS
+- [docs/setup/PROXMOX_SETUP.md](docs/setup/PROXMOX_SETUP.md) — настройка Proxmox VE
+- [docs/plans/RESEARCH_SSO.md](docs/plans/RESEARCH_SSO.md) — исследование SSO (Authelia, Authentik, Keycloak)
+- [docs/plans/RESEARCH_TUNNELING.md](docs/plans/RESEARCH_TUNNELING.md) — исследование self-hosted туннелирования (frp, sish, pgrok и др.)
+- [docs/plans/RESEARCH_ANALYTICS.md](docs/plans/RESEARCH_ANALYTICS.md) — исследование self-hosted веб-аналитики (Umami, Plausible, Matomo и др.)
+- [docs/plans/PLAN_SCRIPTS_REFACTORING.md](docs/plans/PLAN_SCRIPTS_REFACTORING.md) — план рефакторинга скриптов установки (5 фаз)

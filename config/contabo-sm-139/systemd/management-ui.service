@@ -1,0 +1,23 @@
+[Unit]
+Description=Management UI
+After=network.target traefik.service
+
+[Service]
+Type=simple
+User=management-ui
+Group=management-ui
+WorkingDirectory=/opt/management-ui
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+Environment=NODE_ENV=production
+Environment=PORT=3000
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/etc/management-ui /var/log
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

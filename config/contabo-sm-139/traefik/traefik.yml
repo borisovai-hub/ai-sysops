@@ -8,6 +8,9 @@ api:
   debug: false
 
 entryPoints:
+  # Dashboard доступен только с localhost
+  traefik:
+    address: "127.0.0.1:8080"
   web:
     address: ":80"
     http:
@@ -31,7 +34,7 @@ providers:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: admin@example.com
+      email: admin@borisovai.ru
       storage: /var/lib/traefik/acme/acme.json
       httpChallenge:
         entryPoint: web

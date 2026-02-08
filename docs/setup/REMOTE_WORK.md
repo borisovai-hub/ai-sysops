@@ -27,7 +27,7 @@
 
 Чтобы агент и расширение стабильно работали с сервером, настройте вход по ключу и при необходимости SSH config (алиас хоста, ключ, пользователь).
 
-- Настройка SSH ключа: см. [UPLOAD_EXAMPLES.md](UPLOAD_EXAMPLES.md) (раздел «Настройка SSH ключа»).
+- Настройка SSH ключа: см. [UPLOAD_EXAMPLES.md](../UPLOAD_EXAMPLES.md) (раздел «Настройка SSH ключа»).
 - Пример SSH config для одной машины: [config/single-machine/ssh-config.example](config/single-machine/ssh-config.example). Скопируйте нужный блок в `~/.ssh/config` (Windows: `%USERPROFILE%\.ssh\config`) и подставьте свой IP, пользователя и путь к ключу.
 
 ## Управление подключением и работой агента настройками проекта
