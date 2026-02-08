@@ -34,6 +34,18 @@ install:authelia:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
+install:frps:
+  stage: install
+  tags:
+    - deploy-root
+  needs: []
+  script:
+    - bash scripts/single-machine/install-frps.sh
+  when: manual
+  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
 deploy:
   stage: deploy
   tags:
