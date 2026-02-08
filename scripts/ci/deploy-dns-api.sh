@@ -42,7 +42,7 @@ if [ -f "$APP_DIR/package.json" ]; then
 fi
 
 # Перезапуск сервиса (если существует)
-if systemctl list-unit-files | grep -q dns-api.service; then
+if systemctl is-active --quiet dns-api 2>/dev/null; then
     echo "Перезапуск сервиса..."
     systemctl restart dns-api
     sleep 2
@@ -53,7 +53,7 @@ if systemctl list-unit-files | grep -q dns-api.service; then
         journalctl -u dns-api -n 10 --no-pager
     fi
 else
-    echo "systemd сервис dns-api не найден — пропуск перезапуска"
+    echo "Сервис dns-api не запущен — пропуск перезапуска"
 fi
 
 echo "=== DNS API задеплоен ==="
