@@ -294,14 +294,16 @@ authentication_backend:
       salt_length: 16
       key_length: 32
 
+identity_validation:
+  reset_password:
+    jwt_secret: '$(cat /etc/authelia/secrets/jwt_secret)'
+
 session:
-  secret:
-    file: /etc/authelia/secrets/session_secret
+  secret: '$(cat /etc/authelia/secrets/session_secret)'
   cookies:${SESSION_COOKIES}
 
 storage:
-  encryption_key:
-    file: /etc/authelia/secrets/storage_encryption_key
+  encryption_key: '$(cat /etc/authelia/secrets/storage_encryption_key)'
   local:
     path: /var/lib/authelia/db.sqlite3
 
@@ -341,8 +343,7 @@ notifier:
 
 identity_providers:
   oidc:
-    hmac_secret:
-      file: /etc/authelia/secrets/oidc_hmac_secret
+    hmac_secret: '$(cat /etc/authelia/secrets/oidc_hmac_secret)'
     jwks:
       - key_id: 'main'
         key: |
@@ -388,7 +389,7 @@ else
     fi
 
     if [ -n "$ADMIN_PASSWORD" ]; then
-        PASSWORD_HASH=$(authelia crypto hash generate argon2 --password "$ADMIN_PASSWORD" 2>/dev/null)
+        PASSWORD_HASH=$(authelia crypto hash generate argon2 --password "$ADMIN_PASSWORD" 2>/dev/null | sed 's/^Digest: //')
         if [ -z "$PASSWORD_HASH" ]; then
             echo "  [ПРЕДУПРЕЖДЕНИЕ] Не удалось создать хеш пароля. Создайте users_database.yml вручную."
             PASSWORD_HASH='$argon2id$v=19$m=65536,t=3,p=4$ЗАМЕНИТЕ_ЭТОТ_ХЕШ'
