@@ -4,6 +4,7 @@
 
 stages:
   - validate
+  - install
   - deploy
   - verify
 
@@ -13,6 +14,18 @@ validate:configs:
     - deploy-production
   script:
     - bash scripts/ci/render-configs.sh --validate
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# Ручная установка компонентов (кнопка Play в GitLab UI)
+install:authelia:
+  stage: install
+  tags:
+    - deploy-production
+  script:
+    - bash scripts/single-machine/install-authelia.sh
+  when: manual
+  allow_failure: true
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
@@ -32,6 +45,9 @@ deploy:
 
     # Деплой Traefik-конфигов (dynamic auto-reload + static с рестартом)
     - bash scripts/ci/deploy-traefik.sh
+
+    # Деплой Authelia SSO (обновление конфигов если установлена)
+    - bash scripts/ci/deploy-authelia.sh
 
     # Копирование скриптов обслуживания
     - mkdir -p /opt/borisovai-admin/scripts

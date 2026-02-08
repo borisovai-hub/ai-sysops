@@ -27,6 +27,18 @@ else
     echo "DNS API — сервис не запущен (пропуск)"
 fi
 
+# Authelia (опционально)
+if systemctl is-active --quiet authelia 2>/dev/null; then
+    echo -n "Authelia (порт 9091)... "
+    if curl -sf --max-time 5 http://127.0.0.1:9091/api/health > /dev/null 2>&1; then
+        echo "OK"
+    else
+        echo "ПРЕДУПРЕЖДЕНИЕ"
+    fi
+else
+    echo "Authelia — не установлена (пропуск)"
+fi
+
 # Traefik
 echo -n "Traefik (порт 8080)... "
 if curl -sf --max-time 5 http://127.0.0.1:8080/api/rawdata > /dev/null 2>&1; then
