@@ -525,12 +525,22 @@ if [ ! -d "$TRAEFIK_DYNAMIC_DIR" ]; then
     echo "  [Предупреждение] Traefik dynamic директория не найдена: ${TRAEFIK_DYNAMIC_DIR}"
     echo "  Создайте конфиг вручную после установки Traefik."
 else
-    # Генерация Host rule
-    HOST_RULES=""
+    # Генерация раздельных роутеров (по одному на домен)
+    # Комбинированный Host(A) || Host(B) вызывает SAN-конфликт в Let's Encrypt
+    ROUTERS_YAML=""
     while IFS= read -r base; do
         [ -z "$base" ] && continue
-        if [ -n "$HOST_RULES" ]; then HOST_RULES="${HOST_RULES} || "; fi
-        HOST_RULES="${HOST_RULES}Host(\`${AUTHELIA_PREFIX}.${base}\`)"
+        # Имя роутера: authelia-ru, authelia-tech и т.д.
+        SUFFIX=$(echo "$base" | sed 's/.*\.//')
+        ROUTERS_YAML="${ROUTERS_YAML}
+    authelia-${SUFFIX}:
+      rule: \"Host(\`${AUTHELIA_PREFIX}.${base}\`)\"
+      service: authelia
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+"
     done < <(get_base_domains)
 
     cat > "$AUTHELIA_TRAEFIK" << TRAEFIKEOF
@@ -546,15 +556,7 @@ http:
           - 'Remote-Email'
           - 'Remote-Name'
 
-  routers:
-    authelia:
-      rule: "${HOST_RULES}"
-      service: authelia
-      entryPoints:
-        - websecure
-      tls:
-        certResolver: letsencrypt
-
+  routers:${ROUTERS_YAML}
   services:
     authelia:
       loadBalancer:

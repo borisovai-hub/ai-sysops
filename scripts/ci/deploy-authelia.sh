@@ -35,14 +35,25 @@ UPDATED=0
 AUTHELIA_YML="$TRAEFIK_DYN/authelia.yml"
 if [ ! -f "$AUTHELIA_YML" ]; then
     echo "  Создание authelia.yml..."
-    HOST_RULES=""
+    # Раздельные роутеры (по одному на домен) — избегаем SAN-конфликт в Let's Encrypt
+    ROUTERS_YAML=""
+    HAS_DOMAINS=false
     while IFS= read -r base; do
         [ -z "$base" ] && continue
-        if [ -n "$HOST_RULES" ]; then HOST_RULES="${HOST_RULES} || "; fi
-        HOST_RULES="${HOST_RULES}Host(\`${AUTHELIA_PREFIX}.${base}\`)"
+        HAS_DOMAINS=true
+        SUFFIX=$(echo "$base" | sed 's/.*\.//')
+        ROUTERS_YAML="${ROUTERS_YAML}
+    authelia-${SUFFIX}:
+      rule: \"Host(\`${AUTHELIA_PREFIX}.${base}\`)\"
+      service: authelia
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+"
     done < <(get_base_domains 2>/dev/null)
 
-    if [ -n "$HOST_RULES" ]; then
+    if [ "$HAS_DOMAINS" = true ]; then
         cat > "$AUTHELIA_YML" << TRAEFIKEOF
 http:
   middlewares:
@@ -56,15 +67,7 @@ http:
           - 'Remote-Email'
           - 'Remote-Name'
 
-  routers:
-    authelia:
-      rule: "${HOST_RULES}"
-      service: authelia
-      entryPoints:
-        - websecure
-      tls:
-        certResolver: letsencrypt
-
+  routers:${ROUTERS_YAML}
   services:
     authelia:
       loadBalancer:

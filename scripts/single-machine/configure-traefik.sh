@@ -592,8 +592,25 @@ AUTHELIA_YML="$DYNAMIC_DIR/authelia.yml"
 if [ "$USE_BASE_DOMAINS" = true ]; then
     if [ "$FORCE_MODE" = true ] || [ ! -f "$AUTHELIA_YML" ]; then
         echo "[6/8] Создание конфигурации для Authelia SSO..."
-        AUTH_HOST_RULE=$(build_host_rule "$AUTH_PREFIX_CFG" "")
-        if [ -n "$AUTH_HOST_RULE" ]; then
+        # Раздельные роутеры (по одному на домен) — избегаем SAN-конфликт в Let's Encrypt
+        AUTHELIA_ROUTERS=""
+        HAS_AUTH_DOMAINS=false
+        while IFS= read -r base; do
+            [ -z "$base" ] && continue
+            HAS_AUTH_DOMAINS=true
+            SUFFIX=$(echo "$base" | sed 's/.*\.//')
+            AUTHELIA_ROUTERS="${AUTHELIA_ROUTERS}
+    authelia-${SUFFIX}:
+      rule: \"Host(\`${AUTH_PREFIX_CFG}.${base}\`)\"
+      service: authelia
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+"
+        done < <(get_base_domains)
+
+        if [ "$HAS_AUTH_DOMAINS" = true ]; then
             cat > "$AUTHELIA_YML" << AUTHELIEOF
 http:
   middlewares:
@@ -607,15 +624,7 @@ http:
           - 'Remote-Email'
           - 'Remote-Name'
 
-  routers:
-    authelia:
-      rule: "${AUTH_HOST_RULE}"
-      service: authelia
-      entryPoints:
-        - websecure
-      tls:
-        certResolver: letsencrypt
-
+  routers:${AUTHELIA_ROUTERS}
   services:
     authelia:
       loadBalancer:
