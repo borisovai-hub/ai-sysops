@@ -22,6 +22,7 @@ install:authelia:
   stage: install
   tags:
     - deploy-production
+  needs: []
   script:
     - bash scripts/single-machine/install-authelia.sh
   when: manual
