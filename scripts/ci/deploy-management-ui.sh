@@ -37,7 +37,7 @@ fi
 # Установка зависимостей
 echo "Установка зависимостей..."
 cd "$APP_DIR"
-npm ci --production --prefer-offline 2>/dev/null || npm ci --production
+npm ci --omit=dev
 
 # Перезапуск сервиса
 echo "Перезапуск сервиса..."
