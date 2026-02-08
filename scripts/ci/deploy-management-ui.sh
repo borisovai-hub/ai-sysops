@@ -34,17 +34,6 @@ else
     echo "ПРЕДУПРЕЖДЕНИЕ: rendered config не найден, конфиг не обновлён"
 fi
 
-# Обновление Traefik-конфига для админки
-TRAEFIK_DYNAMIC_DIR="/etc/traefik/dynamic"
-ADMIN_TRAEFIK_CONFIG="$REPO_ROOT/config/single-machine/traefik/dynamic/admin.yml"
-if [ -f "$ADMIN_TRAEFIK_CONFIG" ]; then
-    echo "Обновление Traefik-конфига для админки..."
-    mkdir -p "$TRAEFIK_DYNAMIC_DIR"
-    cp "$ADMIN_TRAEFIK_CONFIG" "$TRAEFIK_DYNAMIC_DIR/admin.yml"
-else
-    echo "ПРЕДУПРЕЖДЕНИЕ: Traefik-конфиг админки не найден: $ADMIN_TRAEFIK_CONFIG"
-fi
-
 # Установка зависимостей
 echo "Установка зависимостей..."
 cd "$APP_DIR"

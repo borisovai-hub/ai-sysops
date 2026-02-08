@@ -30,6 +30,9 @@ deploy:
     # Деплой DNS API
     - bash scripts/ci/deploy-dns-api.sh
 
+    # Деплой Traefik-конфигов (dynamic auto-reload + static с рестартом)
+    - bash scripts/ci/deploy-traefik.sh
+
     # Копирование скриптов обслуживания
     - mkdir -p /opt/borisovai-admin/scripts
     - cp -r scripts/single-machine/ /opt/borisovai-admin/scripts/single-machine/
