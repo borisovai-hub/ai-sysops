@@ -11,7 +11,7 @@
 # Примечание: Скрипт можно запускать из любой директории.
 # Он автоматически определит свое расположение и найдет все необходимые файлы.
 # 
-# Меню: при наличии dialog — TUI с выбором курсором (чеклист и меню). Без dialog — текстовый ввод 1-7, D, P, A, S, Q.
+# Меню: при наличии dialog — TUI с выбором курсором (чеклист и меню). Без dialog — текстовый ввод 1-9, D, P, A, S, Q.
 # Установка dialog для TUI: apt-get install dialog
 
 # Определение директории скрипта (абсолютный путь)
@@ -103,7 +103,8 @@ show_component_menu() {
     echo "  [5] DNS API интеграция"
     echo "  [6] Mailu Mail Server"
     echo "  [7] frp Tunneling (self-hosted ngrok)"
-    echo "  [8] CI/CD для автоматического деплоя"
+    echo "  [8] Authelia SSO"
+    echo "  [9] CI/CD для автоматического деплоя"
     echo ""
     echo "  [D] Настройка доменов (сейчас: $(domain_mode_summary))"
     echo "  [P] Параметры установки (email, домены, DNS, порты)"
@@ -124,6 +125,7 @@ load_component_selection() {
     INSTALL_DNS_API=$(get_config_value "install_dns_api")
     INSTALL_MAILU=$(get_config_value "install_mailu")
     INSTALL_FRPS=$(get_config_value "install_frps")
+    INSTALL_AUTHELIA=$(get_config_value "install_authelia")
     INSTALL_CICD=$(get_config_value "install_cicd")
     
     # Значения по умолчанию (если не сохранены)
@@ -134,6 +136,7 @@ load_component_selection() {
     [ -z "$INSTALL_DNS_API" ] && INSTALL_DNS_API="n"
     [ -z "$INSTALL_MAILU" ] && INSTALL_MAILU="n"
     [ -z "$INSTALL_FRPS" ] && INSTALL_FRPS="n"
+    [ -z "$INSTALL_AUTHELIA" ] && INSTALL_AUTHELIA="n"
     [ -z "$INSTALL_CICD" ] && INSTALL_CICD="n"
 }
 
@@ -146,6 +149,7 @@ save_component_selection() {
     save_config_value "install_dns_api" "$INSTALL_DNS_API"
     save_config_value "install_mailu" "$INSTALL_MAILU"
     save_config_value "install_frps" "$INSTALL_FRPS"
+    save_config_value "install_authelia" "$INSTALL_AUTHELIA"
     save_config_value "install_cicd" "$INSTALL_CICD"
 }
 
@@ -194,6 +198,7 @@ show_selected_components() {
     [ "$INSTALL_DNS_API" = "y" ] && echo "  [✓] DNS API" || echo "  [ ] DNS API"
     [ "$INSTALL_MAILU" = "y" ] && echo "  [✓] Mailu Mail Server" || echo "  [ ] Mailu Mail Server"
     [ "$INSTALL_FRPS" = "y" ] && echo "  [✓] frp Tunneling" || echo "  [ ] frp Tunneling"
+    [ "$INSTALL_AUTHELIA" = "y" ] && echo "  [✓] Authelia SSO" || echo "  [ ] Authelia SSO"
     [ "$INSTALL_CICD" = "y" ] && echo "  [✓] CI/CD" || echo "  [ ] CI/CD"
     echo "  Домены: $(domain_mode_summary)"
     echo ""
@@ -262,12 +267,13 @@ if [ "$USE_DIALOG" = true ]; then
                     "dns_api" "DNS API" "$([ "$INSTALL_DNS_API" = y ] && echo ON || echo OFF)" \
                     "mailu" "Mailu Mail Server" "$([ "$INSTALL_MAILU" = y ] && echo ON || echo OFF)" \
                     "frps" "frp Tunneling (self-hosted ngrok)" "$([ "$INSTALL_FRPS" = y ] && echo ON || echo OFF)" \
+                    "authelia" "Authelia SSO" "$([ "$INSTALL_AUTHELIA" = y ] && echo ON || echo OFF)" \
                     "cicd" "CI/CD" "$([ "$INSTALL_CICD" = y ] && echo ON || echo OFF)" \
                     2> "$TMPFILE"
                 res=$(cat "$TMPFILE" 2>/dev/null | tr -d '"' | tr '\n' ' ')
                 rm -f "$TMPFILE"
                 TMPFILE=""
-                for tag in traefik gitlab n8n management_ui dns_api mailu frps cicd; do
+                for tag in traefik gitlab n8n management_ui dns_api mailu frps authelia cicd; do
                     case "$tag" in
                         traefik) if echo " $res " | grep -q " traefik "; then INSTALL_TRAEFIK=y; else INSTALL_TRAEFIK=n; fi ;;
                         gitlab)  if echo " $res " | grep -q " gitlab "; then INSTALL_GITLAB=y; else INSTALL_GITLAB=n; fi ;;
@@ -276,6 +282,7 @@ if [ "$USE_DIALOG" = true ]; then
                         dns_api) if echo " $res " | grep -q " dns_api "; then INSTALL_DNS_API=y; else INSTALL_DNS_API=n; fi ;;
                         mailu)   if echo " $res " | grep -q " mailu "; then INSTALL_MAILU=y; else INSTALL_MAILU=n; fi ;;
                         frps)    if echo " $res " | grep -q " frps "; then INSTALL_FRPS=y; else INSTALL_FRPS=n; fi ;;
+                        authelia) if echo " $res " | grep -q " authelia "; then INSTALL_AUTHELIA=y; else INSTALL_AUTHELIA=n; fi ;;
                         cicd)    if echo " $res " | grep -q " cicd "; then INSTALL_CICD=y; else INSTALL_CICD=n; fi ;;
                     esac
                 done
@@ -374,7 +381,7 @@ if [ "$USE_DIALOG" = true ]; then
                 ;;
             all)
                 INSTALL_TRAEFIK=y; INSTALL_GITLAB=y; INSTALL_N8N=y; INSTALL_MANAGEMENT_UI=y
-                INSTALL_DNS_API=y; INSTALL_MAILU=y; INSTALL_FRPS=y; INSTALL_CICD=y
+                INSTALL_DNS_API=y; INSTALL_MAILU=y; INSTALL_FRPS=y; INSTALL_AUTHELIA=y; INSTALL_CICD=y
                 save_component_selection
                 dialog --msgbox "Все компоненты включены." 5 40
                 ;;
@@ -387,16 +394,17 @@ if [ "$USE_DIALOG" = true ]; then
                 [ "$INSTALL_DNS_API" = y ] && sel="${sel}[✓] DNS API\n" || sel="${sel}[ ] DNS API\n"
                 [ "$INSTALL_MAILU" = y ] && sel="${sel}[✓] Mailu\n" || sel="${sel}[ ] Mailu\n"
                 [ "$INSTALL_FRPS" = y ] && sel="${sel}[✓] frp Tunneling\n" || sel="${sel}[ ] frp Tunneling\n"
+                [ "$INSTALL_AUTHELIA" = y ] && sel="${sel}[✓] Authelia SSO\n" || sel="${sel}[ ] Authelia SSO\n"
                 [ "$INSTALL_CICD" = y ] && sel="${sel}[✓] CI/CD\n" || sel="${sel}[ ] CI/CD\n"
                 sel="${sel}\nДомены: $(domain_mode_summary)"
-                dialog --msgbox "$(printf '%b' "$sel")" 14 45
+                dialog --msgbox "$(printf '%b' "$sel")" 15 45
                 ;;
             done)
                 if [ "$INSTALL_TRAEFIK" != "y" ]; then
                     dialog --msgbox "Ошибка: Traefik обязателен для работы других компонентов. Включите Traefik." 7 50
                     continue
                 fi
-                if [ "$INSTALL_GITLAB" != "y" ] && [ "$INSTALL_N8N" != "y" ] && [ "$INSTALL_MANAGEMENT_UI" != "y" ] && [ "$INSTALL_DNS_API" != "y" ] && [ "$INSTALL_MAILU" != "y" ] && [ "$INSTALL_FRPS" != "y" ] && [ "$INSTALL_CICD" != "y" ]; then
+                if [ "$INSTALL_GITLAB" != "y" ] && [ "$INSTALL_N8N" != "y" ] && [ "$INSTALL_MANAGEMENT_UI" != "y" ] && [ "$INSTALL_DNS_API" != "y" ] && [ "$INSTALL_MAILU" != "y" ] && [ "$INSTALL_FRPS" != "y" ] && [ "$INSTALL_AUTHELIA" != "y" ] && [ "$INSTALL_CICD" != "y" ]; then
                     dialog --yesno "Выбран только Traefik. Продолжить?" 6 40 && break || continue
                 fi
                 break
@@ -411,7 +419,7 @@ while [ "$COMPONENT_MENU" = true ]; do
     show_component_menu
     show_selected_components
     
-    read -p "Выберите действие (1-8, D, P, A, S, Q): " MENU_CHOICE
+    read -p "Выберите действие (1-9, D, P, A, S, Q): " MENU_CHOICE
     MENU_CHOICE=$(echo "$MENU_CHOICE" | tr ',' ' ')
     for choice in $MENU_CHOICE; do
     case $choice in
@@ -572,6 +580,15 @@ while [ "$COMPONENT_MENU" = true ]; do
             fi
             ;;
         8)
+            if [ "$INSTALL_AUTHELIA" = "y" ]; then
+                INSTALL_AUTHELIA="n"
+                echo "  Authelia SSO: отключён"
+            else
+                INSTALL_AUTHELIA="y"
+                echo "  Authelia SSO: включён"
+            fi
+            ;;
+        9)
             if [ "$INSTALL_CICD" = "y" ]; then
                 INSTALL_CICD="n"
                 echo "  CI/CD: отключён"
@@ -588,6 +605,7 @@ while [ "$COMPONENT_MENU" = true ]; do
             INSTALL_DNS_API="y"
             INSTALL_MAILU="y"
             INSTALL_FRPS="y"
+            INSTALL_AUTHELIA="y"
             INSTALL_CICD="y"
             echo "  Все компоненты: включены"
             ;;
@@ -606,7 +624,7 @@ while [ "$COMPONENT_MENU" = true ]; do
             fi
             
             # Проверка, что выбран хотя бы один компонент
-            if [ "$INSTALL_GITLAB" != "y" ] && [ "$INSTALL_N8N" != "y" ] && [ "$INSTALL_MANAGEMENT_UI" != "y" ] && [ "$INSTALL_DNS_API" != "y" ] && [ "$INSTALL_MAILU" != "y" ] && [ "$INSTALL_FRPS" != "y" ] && [ "$INSTALL_CICD" != "y" ]; then
+            if [ "$INSTALL_GITLAB" != "y" ] && [ "$INSTALL_N8N" != "y" ] && [ "$INSTALL_MANAGEMENT_UI" != "y" ] && [ "$INSTALL_DNS_API" != "y" ] && [ "$INSTALL_MAILU" != "y" ] && [ "$INSTALL_FRPS" != "y" ] && [ "$INSTALL_AUTHELIA" != "y" ] && [ "$INSTALL_CICD" != "y" ]; then
                 echo ""
                 echo "Предупреждение: Выбран только Traefik."
                 read -p "Продолжить? (y/n): " CONTINUE_ONLY_TRAEFIK
@@ -1195,6 +1213,52 @@ else
     save_install_state "n8n" "completed"
 fi
 
+# Установка Authelia SSO
+if [ "$INSTALL_AUTHELIA" = "y" ]; then
+    echo ""
+    echo "=== [7.5/10] Установка Authelia SSO ==="
+    STEP_NAME="authelia"
+    SERVICE_FORCE_MODE=false
+    if check_and_ask_reinstall "Authelia" "is_service_installed authelia.service" "$INSTALL_MODE"; then
+        SERVICE_FORCE_MODE=true
+    fi
+
+    if [ "$CONTINUE_MODE" = true ] && is_step_completed "$STEP_NAME" && [ "$SERVICE_FORCE_MODE" != true ]; then
+        echo "  [Пропуск] Authelia уже установлен"
+    else
+        if [ "$SERVICE_FORCE_MODE" = true ]; then
+            save_install_state "$STEP_NAME" "in_progress"
+            if [ -f "$SCRIPT_DIR/install-authelia.sh" ]; then
+                bash "$SCRIPT_DIR/install-authelia.sh" --force
+                if [ $? -eq 0 ]; then
+                    save_install_state "$STEP_NAME" "completed"
+                    echo "  [OK] Authelia установлен"
+                else
+                    echo "  [ОШИБКА] Не удалось установить Authelia"
+                    if [ "$CONTINUE_MODE" != true ]; then
+                        echo "Используйте --continue для продолжения"
+                        exit 1
+                    fi
+                fi
+            else
+                echo "  [ОШИБКА] Скрипт install-authelia.sh не найден"
+                exit 1
+            fi
+        else
+            if [ "$INSTALL_MODE" = "ask" ]; then
+                echo "  [Пропуск] Authelia уже установлен (пользователь отказался от переустановки)"
+            else
+                echo "  [Пропуск] Authelia уже установлен"
+            fi
+        fi
+    fi
+else
+    echo ""
+    echo "=== [7.5/10] Установка Authelia SSO ==="
+    echo "  [Пропуск] Authelia SSO не выбран для установки"
+    save_install_state "authelia" "completed"
+fi
+
 # Установка веб-интерфейса
 if [ "$INSTALL_MANAGEMENT_UI" = "y" ]; then
     echo ""
@@ -1475,6 +1539,7 @@ GITLAB_OK=false
 N8N_OK=false
 UI_OK=false
 FRPS_OK=false
+AUTHELIA_OK=false
 MAILU_OK=false
 CICD_OK=false
 
@@ -1523,6 +1588,15 @@ if [ "$INSTALL_FRPS" = "y" ]; then
     fi
 fi
 
+if [ "$INSTALL_AUTHELIA" = "y" ]; then
+    if systemctl is-active --quiet authelia; then
+        echo "  ✓ Authelia SSO - запущен"
+        AUTHELIA_OK=true
+    else
+        echo "  ✗ Authelia SSO - не запущен (проверьте: systemctl status authelia)"
+    fi
+fi
+
 if [ "$INSTALL_MAILU" = "y" ] && [ -n "$MAIL_DOMAIN" ]; then
     if systemctl is-active --quiet mailu; then
         echo "  ✓ Mailu Mail Server - запущен"
@@ -1556,6 +1630,9 @@ if [ "$INSTALL_MANAGEMENT_UI" = "y" ] && [ "$UI_OK" = false ]; then
     HAS_ERRORS=true
 fi
 if [ "$INSTALL_FRPS" = "y" ] && [ "$FRPS_OK" = false ]; then
+    HAS_ERRORS=true
+fi
+if [ "$INSTALL_AUTHELIA" = "y" ] && [ "$AUTHELIA_OK" = false ]; then
     HAS_ERRORS=true
 fi
 if [ "$INSTALL_MAILU" = "y" ] && [ -n "$MAIL_DOMAIN" ] && [ "$MAILU_OK" = false ]; then
@@ -1686,6 +1763,10 @@ fi
 if [ "$INSTALL_FRPS" = "y" ]; then
     echo "  systemctl status frps"
     echo "  journalctl -u frps -f"
+fi
+if [ "$INSTALL_AUTHELIA" = "y" ]; then
+    echo "  systemctl status authelia"
+    echo "  journalctl -u authelia -f"
 fi
 if [ "$INSTALL_MAILU" = "y" ] && [ -n "$MAIL_DOMAIN" ]; then
     echo "  systemctl status mailu"

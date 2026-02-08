@@ -15,6 +15,7 @@ http:
         certResolver: letsencrypt
       middlewares:
         - n8n-compress
+        - authelia@file
 
   services:
     n8n:

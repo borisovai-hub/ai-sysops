@@ -407,7 +407,12 @@
 
         async function logout() {
             try {
-                await fetch('/logout', { method: 'POST' });
+                const res = await fetch('/logout', { method: 'POST' });
+                const data = await res.json();
+                if (data.redirect) {
+                    window.location.href = data.redirect;
+                    return;
+                }
             } catch (e) {}
             window.location.href = '/login';
         }

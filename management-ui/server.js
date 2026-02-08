@@ -8,6 +8,10 @@ const yaml = require('yaml');
 const { execSync } = require('child_process');
 const crypto = require('crypto');
 
+// OIDC (Authelia SSO) — опциональный
+let oidcAuth = null;
+let OIDC_ENABLED = false;
+
 const app = express();
 const PORT = 3000;
 const CONFIG_FILE = '/etc/management-ui/config.json';
@@ -18,24 +22,7 @@ const PROJECTS_FILE = '/etc/management-ui/projects.json';
 const TEMPLATES_DIR = path.join(__dirname, 'templates');
 const INSTALL_CONFIG_FILE = '/etc/install-config.json';
 
-// Настройка сессий
-app.use(session({
-    secret: 'management-ui-secret-key-change-in-production',
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-        httpOnly: true,
-        secure: false, // Установить true если используется HTTPS
-        maxAge: 24 * 60 * 60 * 1000 // 24 часа
-    }
-}));
-
-// Middleware
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Загрузка конфигурации
+// Загрузка конфигурации (до middleware, чтобы знать режим OIDC)
 let config = {};
 try {
     if (fs.existsSync(CONFIG_FILE)) {
@@ -44,6 +31,54 @@ try {
 } catch (error) {
     console.error('Ошибка загрузки конфигурации:', error.message);
 }
+
+// Инициализация OIDC если включён в конфиге
+OIDC_ENABLED = config.oidc?.enabled === true;
+if (OIDC_ENABLED) {
+    try {
+        const { auth, requiresAuth } = require('express-openid-connect');
+        oidcAuth = { auth, requiresAuth };
+        console.log('OIDC режим включён (Authelia SSO)');
+    } catch (error) {
+        console.error('Ошибка загрузки express-openid-connect:', error.message);
+        console.error('Установите: npm install express-openid-connect');
+        OIDC_ENABLED = false;
+    }
+}
+
+// Настройка сессий / OIDC middleware
+if (OIDC_ENABLED && oidcAuth) {
+    app.use(oidcAuth.auth({
+        authRequired: false,          // не требовать авторизацию глобально
+        auth0Logout: false,           // Authelia — не Auth0
+        issuerBaseURL: config.oidc.issuer,
+        baseURL: config.oidc.base_url,
+        clientID: config.oidc.client_id,
+        clientSecret: config.oidc.client_secret,
+        secret: config.oidc.cookie_secret,
+        idpLogout: true,
+        authorizationParams: {
+            response_type: 'code',
+            scope: 'openid profile email'
+        }
+    }));
+} else {
+    app.use(session({
+        secret: 'management-ui-secret-key-change-in-production',
+        resave: false,
+        saveUninitialized: false,
+        cookie: {
+            httpOnly: true,
+            secure: false, // Установить true если используется HTTPS
+            maxAge: 24 * 60 * 60 * 1000 // 24 часа
+        }
+    }));
+}
+
+// Middleware
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Загрузка конфигурации авторизации
 let authConfig = {};
@@ -115,9 +150,9 @@ function validateBearerToken(token) {
     return null;
 }
 
-// Middleware проверки авторизации (сессия или Bearer-токен)
+// Middleware проверки авторизации (Bearer-токен, OIDC или сессия)
 function requireAuth(req, res, next) {
-    // Проверка Bearer-токена
+    // 1. Проверка Bearer-токена (всегда первым, без изменений)
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.slice(7);
@@ -129,20 +164,37 @@ function requireAuth(req, res, next) {
         }
         return res.status(401).json({ error: 'Недействительный токен' });
     }
-    // Проверка сессии
-    if (req.session && req.session.authenticated) {
+    // 2. OIDC режим — проверка через express-openid-connect
+    if (OIDC_ENABLED && req.oidc?.isAuthenticated()) {
+        req.authMethod = 'oidc';
+        req.oidcUser = req.oidc.user;
+        return next();
+    }
+    // 3. Legacy session режим (dev / без OIDC)
+    if (!OIDC_ENABLED && req.session && req.session.authenticated) {
         req.authMethod = 'session';
         return next();
     }
+    // Не авторизован
     if (req.path.startsWith('/api/')) {
         return res.status(401).json({ error: 'Требуется авторизация' });
+    }
+    if (OIDC_ENABLED) {
+        return res.redirect('/login');
     }
     res.redirect('/login');
 }
 
-// Middleware: только сессионная авторизация (для управления токенами)
+// Middleware: только интерактивная авторизация — OIDC или сессия (для управления токенами)
 function requireSessionAuth(req, res, next) {
-    if (req.session && req.session.authenticated) {
+    // OIDC режим
+    if (OIDC_ENABLED && req.oidc?.isAuthenticated()) {
+        req.authMethod = 'oidc';
+        req.oidcUser = req.oidc.user;
+        return next();
+    }
+    // Legacy session режим
+    if (!OIDC_ENABLED && req.session && req.session.authenticated) {
         return next();
     }
     if (req.path.startsWith('/api/')) {
@@ -498,42 +550,57 @@ app.get('/dns.html', requireAuth, (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'dns.html'));
 });
 
-// Страница входа (не требует авторизации)
-app.get('/login', (req, res) => {
-    if (req.session && req.session.authenticated) {
-        return res.redirect('/');
-    }
-    res.sendFile(path.join(__dirname, 'public', 'login.html'));
-});
-
-// Обработка входа
-app.post('/login', (req, res) => {
-    const { username, password } = req.body;
-
-    if (username === authConfig.username && password === authConfig.password) {
-        req.session.authenticated = true;
-        req.session.username = username;
-        res.json({ success: true });
-    } else {
-        res.status(401).json({ error: 'Неверный логин или пароль' });
-    }
-});
-
-// Выход
-app.post('/logout', (req, res) => {
-    req.session.destroy((err) => {
-        if (err) {
-            return res.status(500).json({ error: 'Ошибка выхода' });
+// Страница входа и обработка login/logout — только в legacy (не-OIDC) режиме
+if (!OIDC_ENABLED) {
+    app.get('/login', (req, res) => {
+        if (req.session && req.session.authenticated) {
+            return res.redirect('/');
         }
-        res.json({ success: true });
+        res.sendFile(path.join(__dirname, 'public', 'login.html'));
     });
-});
+
+    app.post('/login', (req, res) => {
+        const { username, password } = req.body;
+
+        if (username === authConfig.username && password === authConfig.password) {
+            req.session.authenticated = true;
+            req.session.username = username;
+            res.json({ success: true });
+        } else {
+            res.status(401).json({ error: 'Неверный логин или пароль' });
+        }
+    });
+
+    app.post('/logout', (req, res) => {
+        req.session.destroy((err) => {
+            if (err) {
+                return res.status(500).json({ error: 'Ошибка выхода' });
+            }
+            res.json({ success: true });
+        });
+    });
+} else {
+    // OIDC режим: GET /logout обрабатывается express-openid-connect автоматически.
+    // POST /logout — редирект на GET /logout для совместимости с фронтендом
+    app.post('/logout', (req, res) => {
+        res.json({ success: true, redirect: '/logout' });
+    });
+}
 
 // Проверка авторизации (для фронтенда)
 app.get('/api/auth/check', (req, res) => {
+    if (OIDC_ENABLED) {
+        const isAuth = !!req.oidc?.isAuthenticated();
+        return res.json({
+            authenticated: isAuth,
+            username: req.oidc?.user?.preferred_username || req.oidc?.user?.email || null,
+            authMode: 'oidc'
+        });
+    }
     res.json({
         authenticated: !!(req.session && req.session.authenticated),
-        username: req.session?.username || null
+        username: req.session?.username || null,
+        authMode: 'session'
     });
 });
 

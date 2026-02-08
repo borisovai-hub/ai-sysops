@@ -49,6 +49,7 @@
 | n8n | n8n.dev | n8n.dev.borisovai.ru, n8n.dev.borisovai.tech |
 | Mailu | mail.dev | mail.dev.borisovai.ru, mail.dev.borisovai.tech |
 | frps (туннели) | tunnel | *.tunnel.borisovai.ru, *.tunnel.borisovai.tech |
+| Authelia SSO | auth | auth.borisovai.ru, auth.borisovai.tech |
 
 ## Реализованные функции
 
@@ -73,6 +74,23 @@
 - **CI скрипты**: `scripts/ci/render-configs.sh`, `deploy-management-ui.sh`, `deploy-dns-api.sh`, `health-check.sh`
 - **Секреты**: GitLab CI Variables (GITLAB_TOKEN, STRAPI_TOKEN — masked)
 - **Динамические данные** (не перезаписываются): projects.json, auth.json, records.json
+
+### Authelia SSO
+
+Единый вход (SSO) через Authelia — ForwardAuth middleware для Traefik + OIDC для Management UI.
+
+- **Исследование**: [docs/plans/RESEARCH_SSO.md](docs/plans/RESEARCH_SSO.md)
+- **План**: [docs/plans/PLAN_SSO_AUTHELIA.md](docs/plans/PLAN_SSO_AUTHELIA.md)
+- **Скрипт установки**: `scripts/single-machine/install-authelia.sh` (`--force` для переустановки)
+- **Конфиг**: `/etc/authelia/configuration.yml`, `/etc/authelia/users_database.yml`
+- **Секреты**: `/etc/authelia/secrets/` (jwt, session, storage, OIDC client secrets)
+- **Traefik**: `/etc/traefik/dynamic/authelia.yml` (ForwardAuth middleware + роутер)
+- **Systemd**: `authelia.service`
+- **Домены**: `auth.borisovai.ru`, `auth.borisovai.tech`
+- **Порт**: 9091 (localhost)
+- **OIDC в Management UI**: `config.json` → секция `oidc` (enabled, issuer, base_url, client_id, client_secret, cookie_secret)
+- **Dual-mode**: `OIDC_ENABLED` flag в server.js — OIDC (production) или legacy session (dev)
+- **Защищённые сервисы**: management-ui, n8n, mailu (middleware `authelia@file`)
 
 ### frp Tunneling
 
@@ -110,6 +128,7 @@ Self-hosted туннелирование (замена ngrok) — проброс
 - `scripts/single-machine/manage-base-domains.sh` — управление списком базовых доменов
 - `scripts/single-machine/common.sh` — общие функции (base_domains, install state, config)
 - `scripts/single-machine/install-frps.sh` — установка frp server (туннелирование)
+- `scripts/single-machine/install-authelia.sh` — установка Authelia SSO
 - `.gitlab-ci.yml` — CI/CD pipeline для borisovai-admin
 
 ## Данные

@@ -243,6 +243,7 @@ http:
         certResolver: letsencrypt
       middlewares:
         - ${service_name}-compress
+        - authelia@file
 
   services:
     ${service_name}:
@@ -526,6 +527,7 @@ http:
       middlewares:
         - mailu-headers
         - mailu-compress
+        - authelia@file
       tls:
         certResolver: letsencrypt
       priority: 10
@@ -538,6 +540,7 @@ http:
       middlewares:
         - mailu-headers
         - mailu-compress
+        - authelia@file
       tls:
         certResolver: letsencrypt
       priority: 5
@@ -550,6 +553,7 @@ http:
       middlewares:
         - mailu-headers
         - mailu-compress
+        - authelia@file
       tls:
         certResolver: letsencrypt
       priority: 1
@@ -567,7 +571,59 @@ MAILUEOF
 fi
 
 # ============================================================
-# [6/7] Конфигурация для frp туннелей (wildcard *.tunnel.*)
+# [6/8] Конфигурация для Authelia SSO (ForwardAuth middleware + роутер)
+# ============================================================
+AUTH_PREFIX_CFG=$(get_config_value "auth_prefix")
+[ -z "$AUTH_PREFIX_CFG" ] && AUTH_PREFIX_CFG="auth"
+AUTHELIA_YML="$DYNAMIC_DIR/authelia.yml"
+
+if [ "$USE_BASE_DOMAINS" = true ]; then
+    if [ "$FORCE_MODE" = true ] || [ ! -f "$AUTHELIA_YML" ]; then
+        echo "[6/8] Создание конфигурации для Authelia SSO..."
+        AUTH_HOST_RULE=$(build_host_rule "$AUTH_PREFIX_CFG" "")
+        if [ -n "$AUTH_HOST_RULE" ]; then
+            cat > "$AUTHELIA_YML" << AUTHELIEOF
+http:
+  middlewares:
+    authelia:
+      forwardAuth:
+        address: 'http://127.0.0.1:9091/api/authz/forward-auth'
+        trustForwardHeader: true
+        authResponseHeaders:
+          - 'Remote-User'
+          - 'Remote-Groups'
+          - 'Remote-Email'
+          - 'Remote-Name'
+
+  routers:
+    authelia:
+      rule: "${AUTH_HOST_RULE}"
+      service: authelia
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    authelia:
+      loadBalancer:
+        servers:
+          - url: 'http://127.0.0.1:9091'
+AUTHELIEOF
+            chmod 644 "$AUTHELIA_YML"
+            echo "  [OK] Создан $AUTHELIA_YML"
+        else
+            echo "  [Ошибка] Не удалось построить правило для Authelia"
+        fi
+    else
+        echo "[6/8] [Пропуск] authelia.yml уже существует"
+    fi
+else
+    echo "[6/8] [Пропуск] Authelia (нет base_domains)"
+fi
+
+# ============================================================
+# [7/8] Конфигурация для frp туннелей (wildcard *.tunnel.*)
 # ============================================================
 FRP_PREFIX_CFG=$(get_config_value "frp_prefix")
 FRP_VHOST_PORT_CFG=$(get_config_value "frp_vhost_port")
@@ -577,7 +633,7 @@ if [ "$USE_BASE_DOMAINS" = true ] && [ -n "$FRP_PREFIX_CFG" ]; then
     [ -z "$FRP_VHOST_PORT_CFG" ] && FRP_VHOST_PORT_CFG="17480"
 
     if [ "$FORCE_MODE" = true ] || [ ! -f "$TUNNELS_YML" ]; then
-        echo "[6/7] Создание конфигурации для туннелей (frps)..."
+        echo "[7/8] Создание конфигурации для туннелей (frps)..."
 
         # Собираем HostRegexp для каждого base domain
         TUNNEL_HOST_RULE=""
@@ -614,13 +670,13 @@ TUNNELSEOF
         chmod 644 "$TUNNELS_YML"
         echo "  [OK] Создан $TUNNELS_YML (порт: ${FRP_VHOST_PORT_CFG})"
     else
-        echo "[6/7] [Пропуск] tunnels.yml уже существует"
+        echo "[7/8] [Пропуск] tunnels.yml уже существует"
     fi
 else
-    echo "[6/7] [Пропуск] frp не настроен (нет frp_prefix в конфиге)"
+    echo "[7/8] [Пропуск] frp не настроен (нет frp_prefix в конфиге)"
 fi
 
-echo "[7/7] Перезагрузка Traefik..."
+echo "[8/8] Перезагрузка Traefik..."
 if systemctl is-active --quiet traefik; then
     systemctl reload traefik 2>/dev/null || systemctl restart traefik
 else

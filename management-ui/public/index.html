@@ -477,13 +477,17 @@
             }
         }
         
-        // Выход
+        // Выход (поддержка OIDC и legacy режимов)
         async function logout() {
             try {
-                await fetch('/logout', { method: 'POST' });
-                window.location.href = '/login';
+                const res = await fetch('/logout', { method: 'POST' });
+                const data = await res.json();
+                if (data.redirect) {
+                    window.location.href = data.redirect;
+                } else {
+                    window.location.href = '/login';
+                }
             } catch (error) {
-                console.error('Ошибка выхода:', error);
                 window.location.href = '/login';
             }
         }
