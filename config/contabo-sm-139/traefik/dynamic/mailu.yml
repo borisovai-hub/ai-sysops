@@ -27,7 +27,7 @@ http:
       middlewares:
         - mailu-headers
         - mailu-compress
-        - authelia@file
+
       tls:
         certResolver: letsencrypt
       priority: 10
@@ -40,7 +40,7 @@ http:
       middlewares:
         - mailu-headers
         - mailu-compress
-        - authelia@file
+
       tls:
         certResolver: letsencrypt
       priority: 5
@@ -53,7 +53,7 @@ http:
       middlewares:
         - mailu-headers
         - mailu-compress
-        - authelia@file
+
       tls:
         certResolver: letsencrypt
       priority: 1

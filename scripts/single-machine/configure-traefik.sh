@@ -136,6 +136,12 @@ echo ""
 DYNAMIC_DIR="/etc/traefik/dynamic"
 mkdir -p "$DYNAMIC_DIR"
 
+# Проверка: установлена ли Authelia (для условного добавления authelia@file)
+AUTHELIA_INSTALLED=false
+if systemctl is-active --quiet authelia 2>/dev/null || [ -f "/etc/authelia/configuration.yml" ]; then
+    AUTHELIA_INSTALLED=true
+fi
+
 # Удаление \r и пробелов по краям (чтобы в YAML не попадали непечатаемые символы)
 _sanitize_for_yaml() {
     sed 's/\r//g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
@@ -225,6 +231,11 @@ http:
           - url: "${backend_url}"
 EOF
         else
+            local AUTHELIA_MIDDLEWARE=""
+            if [ "$AUTHELIA_INSTALLED" = true ]; then
+                AUTHELIA_MIDDLEWARE="
+        - authelia@file"
+            fi
             cat > "$config_file" << EOF
 http:
   middlewares:
@@ -242,8 +253,7 @@ http:
       tls:
         certResolver: letsencrypt
       middlewares:
-        - ${service_name}-compress
-        - authelia@file
+        - ${service_name}-compress${AUTHELIA_MIDDLEWARE}
 
   services:
     ${service_name}:
@@ -497,6 +507,11 @@ if [ "$USE_BASE_DOMAINS" = true ] && { [ "$FORCE_MODE" = true ] || [ ! -f "$MAIL
         done < <(build_service_domains "$MAIL_PREFIX_CFG" "$MAIL_MIDDLE_CFG" 2>/dev/null)
         [ -z "$MAILU_HOST_RULE" ] && MAILU_HOST_RULE="Host(\`${MAIL_DOMAIN_FOR_MAILU}\`)"
         echo "[5a/6] Создание конфигурации Mailu (mailu.yml отсутствовал)..."
+        MAILU_AUTHELIA_MW=""
+        if [ "$AUTHELIA_INSTALLED" = true ]; then
+            MAILU_AUTHELIA_MW="
+        - authelia@file"
+        fi
         cat > "$MAILU_YML" << MAILUEOF
 http:
   middlewares:
@@ -526,8 +541,7 @@ http:
         - websecure
       middlewares:
         - mailu-headers
-        - mailu-compress
-        - authelia@file
+        - mailu-compress${MAILU_AUTHELIA_MW}
       tls:
         certResolver: letsencrypt
       priority: 10
@@ -539,8 +553,7 @@ http:
         - websecure
       middlewares:
         - mailu-headers
-        - mailu-compress
-        - authelia@file
+        - mailu-compress${MAILU_AUTHELIA_MW}
       tls:
         certResolver: letsencrypt
       priority: 5
@@ -552,8 +565,7 @@ http:
         - websecure
       middlewares:
         - mailu-headers
-        - mailu-compress
-        - authelia@file
+        - mailu-compress${MAILU_AUTHELIA_MW}
       tls:
         certResolver: letsencrypt
       priority: 1

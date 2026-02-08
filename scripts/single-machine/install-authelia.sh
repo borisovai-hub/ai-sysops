@@ -567,6 +567,95 @@ fi
 # Сохранение параметров в install-config
 save_config_value "authelia_port" "$AUTHELIA_PORT"
 save_config_value "authelia_prefix" "$AUTHELIA_PREFIX"
+save_config_value "auth_prefix" "$AUTHELIA_PREFIX"
+
+# ============================================================
+# Добавление authelia@file в Traefik конфиги защищённых сервисов
+# ============================================================
+echo ""
+echo "[Авто] Добавление authelia@file middleware в Traefik конфиги..."
+TRAEFIK_DYN="/etc/traefik/dynamic"
+
+_add_authelia_middleware() {
+    local yml_file="$1"
+    if [ ! -f "$yml_file" ]; then
+        echo "  [Пропуск] $yml_file не найден"
+        return
+    fi
+    if grep -q "authelia@file" "$yml_file"; then
+        echo "  [OK] $(basename "$yml_file") — authelia@file уже есть"
+        return
+    fi
+    # Добавляем authelia@file после каждой строки с *-compress middleware
+    cp "$yml_file" "${yml_file}.backup.$(date +%Y%m%d_%H%M%S)"
+    sed -i '/- .*-compress$/a\        - authelia@file' "$yml_file"
+    echo "  [OK] $(basename "$yml_file") — authelia@file добавлен"
+}
+
+_add_authelia_middleware "$TRAEFIK_DYN/management-ui.yml"
+_add_authelia_middleware "$TRAEFIK_DYN/n8n.yml"
+
+# Mailu: добавить authelia@file ко всем роутерам
+if [ -f "$TRAEFIK_DYN/mailu.yml" ] && ! grep -q "authelia@file" "$TRAEFIK_DYN/mailu.yml"; then
+    cp "$TRAEFIK_DYN/mailu.yml" "$TRAEFIK_DYN/mailu.yml.backup.$(date +%Y%m%d_%H%M%S)"
+    sed -i '/- mailu-compress$/a\        - authelia@file' "$TRAEFIK_DYN/mailu.yml"
+    echo "  [OK] mailu.yml — authelia@file добавлен"
+elif [ -f "$TRAEFIK_DYN/mailu.yml" ]; then
+    echo "  [OK] mailu.yml — authelia@file уже есть"
+fi
+
+# ============================================================
+# Обновление config.json Management UI (OIDC секция)
+# ============================================================
+echo ""
+echo "[Авто] Настройка OIDC в Management UI..."
+MGMT_CONFIG="/etc/management-ui/config.json"
+
+if [ -f "$MGMT_CONFIG" ]; then
+    if grep -q '"oidc"' "$MGMT_CONFIG"; then
+        echo "  [OK] OIDC секция уже есть в config.json"
+    else
+        MGMT_OIDC_SECRET=""
+        if [ -f "/etc/authelia/secrets/mgmt_client_secret" ]; then
+            MGMT_OIDC_SECRET=$(cat /etc/authelia/secrets/mgmt_client_secret)
+        fi
+
+        if [ -n "$MGMT_OIDC_SECRET" ]; then
+            COOKIE_SECRET=""
+            if command -v openssl &> /dev/null; then
+                COOKIE_SECRET=$(openssl rand -hex 32)
+            else
+                COOKIE_SECRET=$(head -c 32 /dev/urandom | xxd -p | tr -d '\n')
+            fi
+            BASE_URL="https://admin.${FIRST_BASE}"
+            ISSUER_URL="https://${AUTHELIA_PREFIX}.${FIRST_BASE}"
+
+            # Добавляем oidc секцию перед последней закрывающей скобкой
+            cp "$MGMT_CONFIG" "${MGMT_CONFIG}.backup.$(date +%Y%m%d_%H%M%S)"
+            # Убираем последнюю } и добавляем oidc блок
+            sed -i '$ s/}//' "$MGMT_CONFIG"
+            cat >> "$MGMT_CONFIG" << OIDCEOF
+  ,"oidc": {
+    "enabled": true,
+    "issuer": "${ISSUER_URL}",
+    "base_url": "${BASE_URL}",
+    "client_id": "management-ui",
+    "client_secret": "${MGMT_OIDC_SECRET}",
+    "cookie_secret": "${COOKIE_SECRET}"
+  }
+}
+OIDCEOF
+            chmod 600 "$MGMT_CONFIG"
+            echo "  [OK] OIDC секция добавлена в config.json"
+            echo "  Перезапуск Management UI..."
+            systemctl restart management-ui 2>/dev/null || true
+        else
+            echo "  [Предупреждение] Секрет mgmt_client_secret не найден, OIDC не настроен"
+        fi
+    fi
+else
+    echo "  [Пропуск] config.json не найден (Management UI не установлен)"
+fi
 
 # ============================================================
 # Итоги
@@ -597,11 +686,12 @@ echo "  Порт:           ${AUTHELIA_PORT} (localhost, за Traefik)"
 echo "  URL:            https://${AUTHELIA_PREFIX}.${FIRST_BASE}"
 echo ""
 echo "  OIDC клиенты сохранены в: $CRED_DIR/authelia"
-echo "  (client_id + client_secret для Management UI и GitLab)"
 echo ""
-echo "  Следующие шаги:"
-echo "    1. Добавить middleware 'authelia' в Traefik конфиги защищённых сервисов"
-echo "    2. Настроить OIDC в Management UI (config.json → oidc секция)"
-echo "    3. Настроить OIDC в GitLab (gitlab.rb → omniauth_providers)"
-echo "    4. Настроить MFA: https://${AUTHELIA_PREFIX}.${FIRST_BASE}"
+echo "  Автоматически настроено:"
+echo "    - authelia@file middleware в management-ui, n8n, mailu"
+echo "    - OIDC секция в /etc/management-ui/config.json"
+echo ""
+echo "  Оставшиеся ручные шаги:"
+echo "    1. Настроить OIDC в GitLab (gitlab.rb → omniauth_providers)"
+echo "    2. Настроить MFA: https://${AUTHELIA_PREFIX}.${FIRST_BASE}"
 echo ""

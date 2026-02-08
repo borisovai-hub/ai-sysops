@@ -15,7 +15,6 @@ http:
         certResolver: letsencrypt
       middlewares:
         - management-ui-compress
-        - authelia@file
 
   services:
     management-ui:

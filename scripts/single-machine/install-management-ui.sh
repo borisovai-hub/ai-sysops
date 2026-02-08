@@ -268,8 +268,8 @@ _write_config() {
     if systemctl is-active --quiet authelia 2>/dev/null; then
         # Authelia установлена — читаем client secret из секретов
         local OIDC_SECRET=""
-        if [ -f "/etc/authelia/secrets/management_ui_client_secret" ]; then
-            OIDC_SECRET=$(cat /etc/authelia/secrets/management_ui_client_secret)
+        if [ -f "/etc/authelia/secrets/mgmt_client_secret" ]; then
+            OIDC_SECRET=$(cat /etc/authelia/secrets/mgmt_client_secret)
         fi
         local COOKIE_SECRET=""
         if command -v openssl &> /dev/null; then

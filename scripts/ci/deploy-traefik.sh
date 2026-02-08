@@ -34,6 +34,12 @@ if [ -d "$DYNAMIC_SRC" ]; then
     echo "Обновление dynamic-конфигов..."
     mkdir -p "$TRAEFIK_DYNAMIC_DIR"
 
+    # Проверяем, установлена ли Authelia на сервере
+    AUTHELIA_ON_SERVER=false
+    if [ -f "/etc/authelia/configuration.yml" ] || systemctl is-active --quiet authelia 2>/dev/null; then
+        AUTHELIA_ON_SERVER=true
+    fi
+
     UPDATED=0
     for yml in "$DYNAMIC_SRC"/*.yml; do
         [ ! -f "$yml" ] && continue
@@ -45,7 +51,18 @@ if [ -d "$DYNAMIC_SRC" ]; then
         fi
 
         cp "$yml" "$target"
-        echo "  [OK] $fname"
+
+        # Если Authelia установлена и в файле нет authelia@file — добавить
+        if [ "$AUTHELIA_ON_SERVER" = true ] && ! grep -q "authelia@file" "$target"; then
+            if grep -q "\-compress$" "$target"; then
+                sed -i '/- .*-compress$/a\        - authelia@file' "$target"
+                echo "  [OK] $fname (+authelia@file)"
+            else
+                echo "  [OK] $fname"
+            fi
+        else
+            echo "  [OK] $fname"
+        fi
         UPDATED=$((UPDATED + 1))
     done
 
