@@ -263,41 +263,8 @@ _write_config() {
         cp "$CONFIG_FILE" "${CONFIG_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
     fi
 
-    # Проверка наличия Authelia для автоматической OIDC конфигурации
-    local OIDC_BLOCK=""
-    if systemctl is-active --quiet authelia 2>/dev/null; then
-        # Authelia установлена — читаем client secret из секретов
-        local OIDC_SECRET=""
-        if [ -f "/etc/authelia/secrets/mgmt_client_secret" ]; then
-            OIDC_SECRET=$(cat /etc/authelia/secrets/mgmt_client_secret)
-        fi
-        local COOKIE_SECRET=""
-        if command -v openssl &> /dev/null; then
-            COOKIE_SECRET=$(openssl rand -hex 32)
-        else
-            COOKIE_SECRET=$(head -c 32 /dev/urandom | xxd -p | tr -d '\n')
-        fi
-        # Определяем base_url из install-config
-        local BASE_URL="https://admin.borisovai.ru"
-        if [ -n "$(get_config_value "base_domains")" ]; then
-            local FIRST_BASE=$(get_config_value "base_domains" | tr ',' '\n' | head -1)
-            BASE_URL="https://admin.${FIRST_BASE}"
-        fi
-        local ISSUER_URL="https://auth.${FIRST_BASE:-borisovai.ru}"
-
-        if [ -n "$OIDC_SECRET" ]; then
-            OIDC_BLOCK=",
-  \"oidc\": {
-    \"enabled\": true,
-    \"issuer\": \"${ISSUER_URL}\",
-    \"base_url\": \"${BASE_URL}\",
-    \"client_id\": \"management-ui\",
-    \"client_secret\": \"${OIDC_SECRET}\",
-    \"cookie_secret\": \"${COOKIE_SECRET}\"
-  }"
-            echo "  [OK] OIDC конфигурация (Authelia SSO) добавлена автоматически"
-        fi
-    fi
+    # Авторизация Management UI через Authelia ForwardAuth (Traefik middleware)
+    # OIDC секция в config.json больше не нужна
 
     cat > "$CONFIG_FILE" << EOF
 {
@@ -308,7 +275,7 @@ _write_config() {
   "base_port": $base_port,
   "runner_tag": "$runner_tag",
   "main_site_path": "$main_site",
-  "deploy_base_path": "$deploy_base"${OIDC_BLOCK}
+  "deploy_base_path": "$deploy_base"
 }
 EOF
     chmod 600 "$CONFIG_FILE"

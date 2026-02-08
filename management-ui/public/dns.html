@@ -285,40 +285,34 @@
     <script>
         let allRecords = [];
         
-        // Проверка авторизации
+        // Проверка авторизации (Authelia ForwardAuth)
         async function checkAuth() {
             try {
                 const response = await fetch('/api/auth/check');
                 const data = await response.json();
-                
                 if (!data.authenticated) {
-                    window.location.href = '/login';
                     return false;
                 }
-                
                 if (data.username) {
                     document.getElementById('username-display').textContent = data.username;
                 }
                 return true;
             } catch (error) {
                 console.error('Ошибка проверки авторизации:', error);
-                window.location.href = '/login';
                 return false;
             }
         }
-        
-        // Выход
+
+        // Выход через Authelia
         async function logout() {
             try {
                 const res = await fetch('/logout', { method: 'POST' });
                 const data = await res.json();
                 if (data.redirect) {
                     window.location.href = data.redirect;
-                } else {
-                    window.location.href = '/login';
                 }
             } catch (error) {
-                window.location.href = '/login';
+                window.location.href = '/';
             }
         }
         

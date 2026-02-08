@@ -386,13 +386,12 @@
             return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
-        // Auth
+        // Auth (Authelia ForwardAuth)
         async function checkAuth() {
             try {
                 const response = await fetch('/api/auth/check');
                 const data = await response.json();
                 if (!data.authenticated) {
-                    window.location.href = '/login';
                     return false;
                 }
                 if (data.username) {
@@ -400,7 +399,6 @@
                 }
                 return true;
             } catch (error) {
-                window.location.href = '/login';
                 return false;
             }
         }
@@ -414,7 +412,7 @@
                     return;
                 }
             } catch (e) {}
-            window.location.href = '/login';
+            window.location.href = '/';
         }
 
         // Load config

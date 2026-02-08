@@ -353,13 +353,90 @@ else
     update_config "$DYNAMIC_DIR/n8n.yml" "n8n" "$N8N_DOMAIN" "http://127.0.0.1:5678"
 fi
 echo "[4/6] Создание/обновление конфигурации для веб-интерфейса управления..."
-if [ -n "$MGMT_UI_HOSTS_CFG" ]; then
-    update_config "$DYNAMIC_DIR/management-ui.yml" "management-ui" "admin" "http://127.0.0.1:3000" "" "$(build_host_rule_from_list "$MGMT_UI_HOSTS_CFG")"
-elif [ "$USE_BASE_DOMAINS" = true ]; then
-    update_config "$DYNAMIC_DIR/management-ui.yml" "management-ui" "admin" "http://127.0.0.1:3000"
-else
-    update_config "$DYNAMIC_DIR/management-ui.yml" "management-ui" "$UI_DOMAIN" "http://127.0.0.1:3000"
-fi
+# Специальная генерация: раздельные роутеры по доменам + Bearer API bypass
+_generate_mgmt_ui_config() {
+    local config_file="$1"
+    local backend_url="http://127.0.0.1:3000"
+
+    # Собираем список доменов
+    local DOMAINS=()
+    if [ -n "$MGMT_UI_HOSTS_CFG" ]; then
+        while IFS= read -r h; do
+            h=$(echo "$h" | sed 's/\r//g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            [ -n "$h" ] && DOMAINS+=("$h")
+        done < <(echo "$MGMT_UI_HOSTS_CFG" | tr ',' '\n')
+    elif [ "$USE_BASE_DOMAINS" = true ]; then
+        while IFS= read -r d; do
+            [ -n "$d" ] && DOMAINS+=("$d")
+        done < <(build_service_domains "admin")
+    else
+        DOMAINS+=("$UI_DOMAIN")
+    fi
+
+    if [ ${#DOMAINS[@]} -eq 0 ]; then
+        echo "  [Ошибка] Нет доменов для management-ui"
+        return 1
+    fi
+
+    if [ "$FORCE_MODE" = true ] || [ ! -f "$config_file" ]; then
+        # Authelia middleware
+        local AUTHELIA_MW=""
+        if [ "$AUTHELIA_INSTALLED" = true ]; then
+            AUTHELIA_MW="
+        - authelia@file"
+        fi
+
+        # Генерация роутеров
+        local ROUTERS_YAML=""
+        for domain in "${DOMAINS[@]}"; do
+            local SUFFIX=$(echo "$domain" | sed 's/.*\.//')
+            # API-роутер для Bearer-токенов (без Authelia)
+            ROUTERS_YAML="${ROUTERS_YAML}
+    management-ui-api-${SUFFIX}:
+      rule: \"Host(\`${domain}\`) && PathPrefix(\`/api/\`) && HeaderRegexp(\`Authorization\`, \`^Bearer .+\`)\"
+      service: management-ui
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - management-ui-compress
+"
+            # Браузерный роутер (с Authelia)
+            ROUTERS_YAML="${ROUTERS_YAML}
+    management-ui-${SUFFIX}:
+      rule: \"Host(\`${domain}\`)\"
+      service: management-ui
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - management-ui-compress${AUTHELIA_MW}
+"
+        done
+
+        cat > "$config_file" << EOF
+http:
+  middlewares:
+    management-ui-compress:
+      compress:
+        excludedContentTypes:
+          - "text/event-stream"
+
+  routers:${ROUTERS_YAML}
+  services:
+    management-ui:
+      loadBalancer:
+        servers:
+          - url: "${backend_url}"
+EOF
+        echo "  [Создано] Конфигурация для management-ui (раздельные роутеры + Bearer bypass)"
+    else
+        echo "  [Существует] management-ui.yml (используйте --force для пересоздания)"
+    fi
+}
+_generate_mgmt_ui_config "$DYNAMIC_DIR/management-ui.yml"
 
 if site_domains_configured; then
     echo "[5/6] Создание/обновление конфигурации для сайта (frontend + API)..."

@@ -1,16 +1,11 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const session = require('express-session');
 const fs = require('fs-extra');
 const path = require('path');
 const axios = require('axios');
 const yaml = require('yaml');
 const { execSync } = require('child_process');
 const crypto = require('crypto');
-
-// OIDC (Authelia SSO) — опциональный
-let oidcAuth = null;
-let OIDC_ENABLED = false;
 
 const app = express();
 const PORT = 3000;
@@ -22,7 +17,7 @@ const PROJECTS_FILE = '/etc/management-ui/projects.json';
 const TEMPLATES_DIR = path.join(__dirname, 'templates');
 const INSTALL_CONFIG_FILE = '/etc/install-config.json';
 
-// Загрузка конфигурации (до middleware, чтобы знать режим OIDC)
+// Загрузка конфигурации
 let config = {};
 try {
     if (fs.existsSync(CONFIG_FILE)) {
@@ -30,49 +25,6 @@ try {
     }
 } catch (error) {
     console.error('Ошибка загрузки конфигурации:', error.message);
-}
-
-// Инициализация OIDC если включён в конфиге
-OIDC_ENABLED = config.oidc?.enabled === true;
-if (OIDC_ENABLED) {
-    try {
-        const { auth, requiresAuth } = require('express-openid-connect');
-        oidcAuth = { auth, requiresAuth };
-        console.log('OIDC режим включён (Authelia SSO)');
-    } catch (error) {
-        console.error('Ошибка загрузки express-openid-connect:', error.message);
-        console.error('Установите: npm install express-openid-connect');
-        OIDC_ENABLED = false;
-    }
-}
-
-// Настройка сессий / OIDC middleware
-if (OIDC_ENABLED && oidcAuth) {
-    app.use(oidcAuth.auth({
-        authRequired: false,          // не требовать авторизацию глобально
-        auth0Logout: false,           // Authelia — не Auth0
-        issuerBaseURL: config.oidc.issuer,
-        baseURL: config.oidc.base_url,
-        clientID: config.oidc.client_id,
-        clientSecret: config.oidc.client_secret,
-        secret: config.oidc.cookie_secret,
-        idpLogout: true,
-        authorizationParams: {
-            response_type: 'code',
-            scope: 'openid profile email'
-        }
-    }));
-} else {
-    app.use(session({
-        secret: 'management-ui-secret-key-change-in-production',
-        resave: false,
-        saveUninitialized: false,
-        cookie: {
-            httpOnly: true,
-            secure: false, // Установить true если используется HTTPS
-            maxAge: 24 * 60 * 60 * 1000 // 24 часа
-        }
-    }));
 }
 
 // Middleware
@@ -150,9 +102,9 @@ function validateBearerToken(token) {
     return null;
 }
 
-// Middleware проверки авторизации (Bearer-токен, OIDC или сессия)
+// Middleware проверки авторизации (Bearer-токен или Authelia ForwardAuth)
 function requireAuth(req, res, next) {
-    // 1. Проверка Bearer-токена (всегда первым, без изменений)
+    // 1. Проверка Bearer-токена
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.slice(7);
@@ -164,43 +116,32 @@ function requireAuth(req, res, next) {
         }
         return res.status(401).json({ error: 'Недействительный токен' });
     }
-    // 2. OIDC режим — проверка через express-openid-connect
-    if (OIDC_ENABLED && req.oidc?.isAuthenticated()) {
-        req.authMethod = 'oidc';
-        req.oidcUser = req.oidc.user;
-        return next();
-    }
-    // 3. Legacy session режим (dev / без OIDC)
-    if (!OIDC_ENABLED && req.session && req.session.authenticated) {
-        req.authMethod = 'session';
+    // 2. Authelia ForwardAuth (Remote-User header от Traefik)
+    const remoteUser = req.headers['remote-user'];
+    if (remoteUser) {
+        req.authMethod = 'authelia';
+        req.authUser = remoteUser;
         return next();
     }
     // Не авторизован
     if (req.path.startsWith('/api/')) {
         return res.status(401).json({ error: 'Требуется авторизация' });
     }
-    if (OIDC_ENABLED) {
-        return res.redirect('/login');
-    }
-    res.redirect('/login');
+    res.status(403).send('Доступ запрещён');
 }
 
-// Middleware: только интерактивная авторизация — OIDC или сессия (для управления токенами)
+// Middleware: только интерактивная авторизация — Authelia (для управления токенами)
 function requireSessionAuth(req, res, next) {
-    // OIDC режим
-    if (OIDC_ENABLED && req.oidc?.isAuthenticated()) {
-        req.authMethod = 'oidc';
-        req.oidcUser = req.oidc.user;
-        return next();
-    }
-    // Legacy session режим
-    if (!OIDC_ENABLED && req.session && req.session.authenticated) {
+    const remoteUser = req.headers['remote-user'];
+    if (remoteUser) {
+        req.authMethod = 'authelia';
+        req.authUser = remoteUser;
         return next();
     }
     if (req.path.startsWith('/api/')) {
         return res.status(401).json({ error: 'Требуется авторизация через сессию' });
     }
-    res.redirect('/login');
+    res.status(403).send('Доступ запрещён');
 }
 
 // Загрузка DNS конфигурации
@@ -545,62 +486,25 @@ app.delete('/api/dns/records/:id', requireAuth, async (req, res) => {
     }
 });
 
-// Страница DNS
-app.get('/dns.html', requireAuth, (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'dns.html'));
+// Выход — редирект на Authelia logout
+app.get('/logout', (req, res) => {
+    const baseDomains = getBaseDomains();
+    const firstBase = baseDomains[0] || 'borisovai.ru';
+    res.redirect(`https://auth.${firstBase}/logout`);
 });
-
-// Страница входа и обработка login/logout — только в legacy (не-OIDC) режиме
-if (!OIDC_ENABLED) {
-    app.get('/login', (req, res) => {
-        if (req.session && req.session.authenticated) {
-            return res.redirect('/');
-        }
-        res.sendFile(path.join(__dirname, 'public', 'login.html'));
-    });
-
-    app.post('/login', (req, res) => {
-        const { username, password } = req.body;
-
-        if (username === authConfig.username && password === authConfig.password) {
-            req.session.authenticated = true;
-            req.session.username = username;
-            res.json({ success: true });
-        } else {
-            res.status(401).json({ error: 'Неверный логин или пароль' });
-        }
-    });
-
-    app.post('/logout', (req, res) => {
-        req.session.destroy((err) => {
-            if (err) {
-                return res.status(500).json({ error: 'Ошибка выхода' });
-            }
-            res.json({ success: true });
-        });
-    });
-} else {
-    // OIDC режим: GET /logout обрабатывается express-openid-connect автоматически.
-    // POST /logout — редирект на GET /logout для совместимости с фронтендом
-    app.post('/logout', (req, res) => {
-        res.json({ success: true, redirect: '/logout' });
-    });
-}
+app.post('/logout', (req, res) => {
+    const baseDomains = getBaseDomains();
+    const firstBase = baseDomains[0] || 'borisovai.ru';
+    res.json({ success: true, redirect: `https://auth.${firstBase}/logout` });
+});
 
 // Проверка авторизации (для фронтенда)
 app.get('/api/auth/check', (req, res) => {
-    if (OIDC_ENABLED) {
-        const isAuth = !!req.oidc?.isAuthenticated();
-        return res.json({
-            authenticated: isAuth,
-            username: req.oidc?.user?.preferred_username || req.oidc?.user?.email || null,
-            authMode: 'oidc'
-        });
-    }
+    const remoteUser = req.headers['remote-user'];
     res.json({
-        authenticated: !!(req.session && req.session.authenticated),
-        username: req.session?.username || null,
-        authMode: 'session'
+        authenticated: !!remoteUser,
+        username: remoteUser || null,
+        authMode: 'authelia'
     });
 });
 
@@ -647,8 +551,8 @@ app.delete('/api/auth/tokens/:id', requireSessionAuth, (req, res) => {
     res.json({ success: true, message: `Токен "${removed.name}" удалён` });
 });
 
-// Страница токенов
-app.get('/tokens.html', requireSessionAuth, (req, res) => {
+// Страница токенов (авторизация на уровне Traefik/Authelia)
+app.get('/tokens.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'tokens.html'));
 });
 
@@ -1233,7 +1137,7 @@ async function frpsDashboardRequest(apiPath) {
     return resp.data;
 }
 
-app.get('/tunnels.html', requireSessionAuth, (req, res) => {
+app.get('/tunnels.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'tunnels.html'));
 });
 
@@ -1302,8 +1206,8 @@ app.get('/api/tunnels/client-config', requireSessionAuth, (req, res) => {
     res.send(toml);
 });
 
-// Главная страница (авторизация проверяется через middleware выше)
-app.get('/', requireAuth, (req, res) => {
+// Главная страница (авторизация на уровне Traefik/Authelia)
+app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 

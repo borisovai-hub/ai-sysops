@@ -116,44 +116,10 @@ elif [ -f "$TRAEFIK_DYN/mailu.yml" ]; then
     echo "  [OK] mailu.yml — authelia@file есть"
 fi
 
-# [3/3] Проверка OIDC секции в Management UI config.json
+# [3/3] Management UI использует Authelia ForwardAuth (OIDC больше не нужен)
 MGMT_CONFIG="/etc/management-ui/config.json"
-if [ -f "$MGMT_CONFIG" ]; then
-    if grep -q '"oidc"' "$MGMT_CONFIG"; then
-        echo "  [OK] OIDC секция в config.json есть"
-    else
-        MGMT_OIDC_SECRET=""
-        if [ -f "/etc/authelia/secrets/mgmt_client_secret" ]; then
-            MGMT_OIDC_SECRET=$(cat /etc/authelia/secrets/mgmt_client_secret)
-        fi
-        if [ -n "$MGMT_OIDC_SECRET" ]; then
-            COOKIE_SECRET=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')
-            FIRST_BASE=$(get_config_value "base_domains" 2>/dev/null | tr ',' '\n' | head -1)
-            [ -z "$FIRST_BASE" ] && FIRST_BASE="borisovai.ru"
-            BASE_URL="https://admin.${FIRST_BASE}"
-            ISSUER_URL="https://${AUTHELIA_PREFIX}.${FIRST_BASE}"
-
-            cp "$MGMT_CONFIG" "${MGMT_CONFIG}.backup.$(date +%Y%m%d_%H%M%S)"
-            sed -i '$ s/}//' "$MGMT_CONFIG"
-            cat >> "$MGMT_CONFIG" << OIDCEOF
-  ,"oidc": {
-    "enabled": true,
-    "issuer": "${ISSUER_URL}",
-    "base_url": "${BASE_URL}",
-    "client_id": "management-ui",
-    "client_secret": "${MGMT_OIDC_SECRET}",
-    "cookie_secret": "${COOKIE_SECRET}"
-  }
-}
-OIDCEOF
-            chmod 600 "$MGMT_CONFIG"
-            echo "  [OK] OIDC секция добавлена в config.json"
-            systemctl restart management-ui 2>/dev/null || true
-            UPDATED=$((UPDATED + 1))
-        else
-            echo "  [Предупреждение] mgmt_client_secret не найден — OIDC не настроен"
-        fi
-    fi
+if [ -f "$MGMT_CONFIG" ] && grep -q '"oidc"' "$MGMT_CONFIG"; then
+    echo "  [Инфо] OIDC секция в config.json больше не используется (ForwardAuth через Traefik)"
 fi
 
 # Health check
