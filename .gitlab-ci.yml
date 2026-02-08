@@ -24,7 +24,7 @@ install:authelia:
     - deploy-production
   needs: []
   script:
-    - bash scripts/single-machine/install-authelia.sh
+    - sudo bash scripts/single-machine/install-authelia.sh
   when: manual
   allow_failure: true
   rules:
@@ -39,20 +39,20 @@ deploy:
     - bash scripts/ci/render-configs.sh
 
     # Деплой Management UI
-    - bash scripts/ci/deploy-management-ui.sh
+    - sudo bash scripts/ci/deploy-management-ui.sh
 
     # Деплой DNS API
-    - bash scripts/ci/deploy-dns-api.sh
+    - sudo bash scripts/ci/deploy-dns-api.sh
 
     # Деплой Traefik-конфигов (dynamic auto-reload + static с рестартом)
-    - bash scripts/ci/deploy-traefik.sh
+    - sudo bash scripts/ci/deploy-traefik.sh
 
     # Деплой Authelia SSO (обновление конфигов если установлена)
-    - bash scripts/ci/deploy-authelia.sh
+    - sudo bash scripts/ci/deploy-authelia.sh
 
     # Копирование скриптов обслуживания
-    - mkdir -p /opt/borisovai-admin/scripts
-    - cp -r scripts/single-machine/ /opt/borisovai-admin/scripts/single-machine/
+    - sudo mkdir -p /opt/borisovai-admin/scripts
+    - sudo cp -r scripts/single-machine/ /opt/borisovai-admin/scripts/single-machine/
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
