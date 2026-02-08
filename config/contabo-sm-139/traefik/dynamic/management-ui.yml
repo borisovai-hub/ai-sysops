@@ -6,8 +6,18 @@ http:
           - "text/event-stream"
 
   routers:
-    management-ui:
-      rule: "Host(`admin.borisovai.ru`) || Host(`admin.borisovai.tech`)"
+    management-ui-tech:
+      rule: "Host(`admin.borisovai.tech`)"
+      service: management-ui
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - management-ui-compress
+
+    management-ui-ru:
+      rule: "Host(`admin.borisovai.ru`)"
       service: management-ui
       entryPoints:
         - websecure

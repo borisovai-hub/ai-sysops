@@ -1,0 +1,34 @@
+http:
+  middlewares:
+    authelia:
+      forwardAuth:
+        address: 'http://127.0.0.1:9091/api/authz/forward-auth'
+        trustForwardHeader: true
+        authResponseHeaders:
+          - 'Remote-User'
+          - 'Remote-Groups'
+          - 'Remote-Email'
+          - 'Remote-Name'
+
+  routers:
+    authelia-tech:
+      rule: "Host(`auth.borisovai.tech`)"
+      service: authelia
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+
+    authelia-ru:
+      rule: "Host(`auth.borisovai.ru`)"
+      service: authelia
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    authelia:
+      loadBalancer:
+        servers:
+          - url: 'http://127.0.0.1:9091'
