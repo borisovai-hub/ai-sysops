@@ -52,14 +52,21 @@ if [ -d "$DYNAMIC_SRC" ]; then
 
         cp "$yml" "$target"
 
-        # Если Authelia установлена и в файле нет authelia@file — добавить
+        # Authelia ForwardAuth — только для защищённых сервисов (не для сайта, gitlab и др.)
         if [ "$AUTHELIA_ON_SERVER" = true ] && ! grep -q "authelia@file" "$target"; then
-            if grep -q "\-compress$" "$target"; then
-                sed -i '/- .*-compress$/a\        - authelia@file' "$target"
-                echo "  [OK] $fname (+authelia@file)"
-            else
-                echo "  [OK] $fname"
-            fi
+            case "$fname" in
+                management-ui.yml|n8n.yml|mailu.yml)
+                    if grep -q "\-compress$" "$target"; then
+                        sed -i '/- .*-compress$/a\        - authelia@file' "$target"
+                        echo "  [OK] $fname (+authelia@file)"
+                    else
+                        echo "  [OK] $fname"
+                    fi
+                    ;;
+                *)
+                    echo "  [OK] $fname"
+                    ;;
+            esac
         else
             echo "  [OK] $fname"
         fi
