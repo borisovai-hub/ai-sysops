@@ -28,6 +28,8 @@ UMAMI_PORT=$(get_config_value "umami_port" 2>/dev/null)
 [ -z "$UMAMI_PORT" ] && UMAMI_PORT="3001"
 ANALYTICS_PREFIX=$(get_config_value "analytics_prefix" 2>/dev/null)
 [ -z "$ANALYTICS_PREFIX" ] && ANALYTICS_PREFIX="analytics"
+ANALYTICS_MIDDLE=$(get_config_value "analytics_middle" 2>/dev/null)
+[ -z "$ANALYTICS_MIDDLE" ] && ANALYTICS_MIDDLE="dev"
 
 UPDATED=0
 
@@ -68,9 +70,10 @@ if [ ! -f "$ANALYTICS_YML" ]; then
         [ -z "$base" ] && continue
         HAS_DOMAINS=true
         SUFFIX=$(echo "$base" | sed 's/.*\.//')
+        FULL_DOMAIN="${ANALYTICS_PREFIX}.${ANALYTICS_MIDDLE}.${base}"
         ROUTERS_YAML="${ROUTERS_YAML}
     analytics-${SUFFIX}:
-      rule: \"Host(\`${ANALYTICS_PREFIX}.${base}\`)\"
+      rule: \"Host(\`${FULL_DOMAIN}\`)\"
       service: analytics
       entryPoints:
         - websecure

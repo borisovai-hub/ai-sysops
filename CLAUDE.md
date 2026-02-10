@@ -50,7 +50,7 @@
 | Mailu | mail.dev | mail.dev.borisovai.ru, mail.dev.borisovai.tech |
 | frps (туннели) | tunnel | *.tunnel.borisovai.ru, *.tunnel.borisovai.tech |
 | Authelia SSO | auth | auth.borisovai.ru, auth.borisovai.tech |
-| Umami Analytics | analytics | analytics.borisovai.ru, analytics.borisovai.tech |
+| Umami Analytics | analytics.dev | analytics.dev.borisovai.ru, analytics.dev.borisovai.tech |
 
 ## Реализованные функции
 
@@ -118,7 +118,7 @@ Self-hosted веб-аналитика для мониторинга трафик
 - **БД**: SQLite (файл `umami.db` в Docker volume `umami-data`)
 - **Traefik**: `/etc/traefik/dynamic/analytics.yml` (раздельные роутеры для каждого домена)
 - **Порт**: 3001 (localhost)
-- **Домены**: analytics.borisovai.ru, analytics.borisovai.tech
+- **Домены**: analytics.dev.borisovai.ru, analytics.dev.borisovai.tech
 - **UI**: `management-ui/public/analytics.html`
 - **API**: `GET /api/analytics/status`
 - **CI/CD**: Автоматическая установка Docker (`install:docker` job) и Umami (`install:umami` job)

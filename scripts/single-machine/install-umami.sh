@@ -29,6 +29,7 @@ set +e
 FORCE_MODE=false
 UMAMI_PORT=3001
 ANALYTICS_PREFIX="analytics"
+ANALYTICS_MIDDLE="dev"
 TRACKER_SCRIPT_NAME="stats"  # Обход AdBlock
 
 for arg in "$@"; do
@@ -195,23 +196,33 @@ if [ -z "$SERVER_IP" ]; then
 else
     echo "  IP сервера: $SERVER_IP"
 
-    # Создание DNS записей для всех base_domains
-    if command -v create_dns_records_for_domains &>/dev/null; then
-        if create_dns_records_for_domains "$ANALYTICS_PREFIX" "$SERVER_IP" 2>/dev/null; then
-            echo "  [OK] DNS записи созданы для analytics.<base_domain>"
-        else
-            echo "  [Предупреждение] Не удалось создать DNS записи автоматически"
-            echo "  Создайте вручную: analytics.<base_domain> → $SERVER_IP"
-        fi
+    # Создание DNS записей для всех base_domains (с middle-сегментом)
+    if command -v build_service_domains &>/dev/null; then
+        # Создаём DNS записи для analytics.dev.<base_domain>
+        while IFS= read -r base; do
+            [ -z "$base" ] && continue
+            FULL_DOMAIN="${ANALYTICS_PREFIX}.${ANALYTICS_MIDDLE}.${base}"
+
+            # Создаём A-запись через DNS API
+            if curl -sf -X POST "http://127.0.0.1:5353/api/records" \
+                -H "Content-Type: application/json" \
+                -d "{\"domain\":\"${FULL_DOMAIN}\",\"type\":\"A\",\"value\":\"${SERVER_IP}\"}" \
+                >/dev/null 2>&1; then
+                echo "  [OK] DNS запись создана: ${FULL_DOMAIN} → ${SERVER_IP}"
+            else
+                echo "  [Предупреждение] Не удалось создать DNS запись для ${FULL_DOMAIN}"
+            fi
+        done < <(get_base_domains 2>/dev/null)
     else
-        echo "  [Пропуск] Функция create_dns_records_for_domains не найдена"
-        echo "  Создайте DNS записи вручную: analytics.<base_domain> → $SERVER_IP"
+        echo "  [Пропуск] Функция build_service_domains не найдена"
+        echo "  Создайте DNS записи вручную: analytics.dev.<base_domain> → $SERVER_IP"
     fi
 fi
 
 # Сохранение конфигурации
 if command -v save_config_value &>/dev/null; then
     save_config_value "analytics_prefix" "$ANALYTICS_PREFIX" 2>/dev/null
+    save_config_value "analytics_middle" "$ANALYTICS_MIDDLE" 2>/dev/null
     save_config_value "umami_port" "$UMAMI_PORT" 2>/dev/null
     save_config_value "umami_tracker_script" "$TRACKER_SCRIPT_NAME" 2>/dev/null
 fi
@@ -236,9 +247,10 @@ else
         [ -z "$base" ] && continue
         HAS_DOMAINS=true
         SUFFIX=$(echo "$base" | sed 's/.*\.//')
+        FULL_DOMAIN="${ANALYTICS_PREFIX}.${ANALYTICS_MIDDLE}.${base}"
         ROUTERS_YAML="${ROUTERS_YAML}
     analytics-${SUFFIX}:
-      rule: \"Host(\`${ANALYTICS_PREFIX}.${base}\`)\"
+      rule: \"Host(\`${FULL_DOMAIN}\`)\"
       service: analytics
       entryPoints:
         - websecure
@@ -281,7 +293,7 @@ echo ""
 echo "  Веб-интерфейс:"
 while IFS= read -r base; do
     [ -z "$base" ] && continue
-    echo "    https://${ANALYTICS_PREFIX}.${base}"
+    echo "    https://${ANALYTICS_PREFIX}.${ANALYTICS_MIDDLE}.${base}"
 done < <(get_base_domains 2>/dev/null)
 echo ""
 echo "  Первый запуск: создайте admin пользователя в веб-интерфейсе"

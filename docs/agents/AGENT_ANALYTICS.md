@@ -7,7 +7,7 @@
 ## Получение website ID
 
 1. Зайти в Management UI → Аналитика (https://admin.borisovai.ru/analytics.html)
-2. Или напрямую в Umami dashboard (https://analytics.borisovai.ru)
+2. Или напрямую в Umami dashboard (https://analytics.dev.borisovai.ru)
 3. Войти под admin пользователем (создаётся при первом запуске Umami)
 4. Перейти в **Settings → Websites**
 5. Нажать **Add website**
@@ -29,7 +29,7 @@ export default function RootLayout({ children }) {
     <html lang="ru">
       <head>
         <Script
-          src="https://analytics.borisovai.ru/stats.js"
+          src="https://analytics.dev.borisovai.ru/stats.js"
           data-website-id="ВСТАВЬТЕ_WEBSITE_ID_СЮДА"
           strategy="afterInteractive"
         />
@@ -52,7 +52,7 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <>
       <Script
-        src="https://analytics.borisovai.ru/stats.js"
+        src="https://analytics.dev.borisovai.ru/stats.js"
         data-website-id="ВСТАВЬТЕ_WEBSITE_ID_СЮДА"
         strategy="afterInteractive"
       />
@@ -63,7 +63,7 @@ export default function App({ Component, pageProps }: AppProps) {
 ```
 
 **Параметры:**
-- `src` — адрес скрипта Umami (всегда `https://analytics.borisovai.ru/stats.js`)
+- `src` — адрес скрипта Umami (всегда `https://analytics.dev.borisovai.ru/stats.js`)
 - `data-website-id` — UUID website из Umami dashboard
 - `strategy="afterInteractive"` — загрузка после интерактивности (не блокирует рендеринг)
 
@@ -129,7 +129,7 @@ export function ProjectCard({ project }) {
 6. Проверить, что текущий визит отображается в реальном времени
 
 **Если скрипт не загружается:**
-- Проверить доступность https://analytics.borisovai.ru/stats.js (откройте напрямую в браузере)
+- Проверить доступность https://analytics.dev.borisovai.ru/stats.js (откройте напрямую в браузере)
 - Проверить website ID (должен быть валидным UUID)
 - Проверить Console в DevTools на наличие ошибок
 
@@ -146,7 +146,7 @@ export function ProjectCard({ project }) {
 - **Документация Umami**: https://umami.is/docs
 - **Tracking Events API**: https://umami.is/docs/tracking-events
 - **React Integration**: https://umami.is/docs/guides/react
-- **Umami Dashboard**: https://analytics.borisovai.ru
+- **Umami Dashboard**: https://analytics.dev.borisovai.ru
 
 ## Пример полной интеграции (borisovai-site)
 
@@ -169,7 +169,7 @@ export default async function LocaleLayout({
       <head>
         {/* Umami Analytics */}
         <Script
-          src="https://analytics.borisovai.ru/stats.js"
+          src="https://analytics.dev.borisovai.ru/stats.js"
           data-website-id="12345678-1234-1234-1234-123456789012"
           strategy="afterInteractive"
         />
@@ -186,7 +186,7 @@ export default async function LocaleLayout({
 
 | Проблема | Решение |
 |----------|---------|
-| Скрипт не загружается | Проверить доступность `https://analytics.borisovai.ru` (DNS, Traefik, контейнер) |
+| Скрипт не загружается | Проверить доступность `https://analytics.dev.borisovai.ru` (DNS, Traefik, контейнер) |
 | События не отправляются | Проверить website ID, проверить `/api/send` endpoint в DevTools |
 | Дублирование событий | Убедиться, что скрипт добавлен только в корневой layout (не в каждом page) |
 | Ошибка SSR | Обернуть вызовы `window.umami` в `typeof window !== 'undefined'` |

@@ -1238,7 +1238,10 @@ app.get('/api/analytics/status', requireAuth, async (req, res) => {
         }
 
         // Получаем домены (функция buildAllDomains уже существует в server.js)
-        const domains = buildAllDomains('analytics');
+        const prefix = installConfig.analytics_prefix || 'analytics';
+        const middle = installConfig.analytics_middle || 'dev';
+        const fullPrefix = `${prefix}.${middle}`;
+        const domains = buildAllDomains(fullPrefix);
 
         res.json({
             installed: isRunning,
