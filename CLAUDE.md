@@ -50,6 +50,7 @@
 | Mailu | mail.dev | mail.dev.borisovai.ru, mail.dev.borisovai.tech |
 | frps (туннели) | tunnel | *.tunnel.borisovai.ru, *.tunnel.borisovai.tech |
 | Authelia SSO | auth | auth.borisovai.ru, auth.borisovai.tech |
+| Umami Analytics | analytics | analytics.borisovai.ru, analytics.borisovai.tech |
 
 ## Реализованные функции
 
@@ -105,6 +106,24 @@ Self-hosted туннелирование (замена ngrok) — проброс
 - **Systemd**: `frps.service`
 - **UI**: `management-ui/public/tunnels.html`
 - **API**: `GET /api/tunnels/status`, `GET /api/tunnels/proxies`, `GET /api/tunnels/config`, `GET /api/tunnels/client-config`
+
+### Umami Analytics
+
+Self-hosted веб-аналитика для мониторинга трафика проектов (privacy-friendly, GDPR-compliant).
+
+- **Исследование**: [docs/plans/RESEARCH_ANALYTICS.md](docs/plans/RESEARCH_ANALYTICS.md)
+- **Скрипт установки**: `scripts/single-machine/install-umami.sh` (`--force` для переустановки)
+- **Docker Compose**: Umami + SQLite (community fork ghcr.io/maxime-j/umami-sqlite:latest)
+- **Конфиг**: `/etc/umami/docker-compose.yml`, `/etc/umami/.env`
+- **БД**: SQLite (файл `umami.db` в Docker volume `umami-data`)
+- **Traefik**: `/etc/traefik/dynamic/analytics.yml` (раздельные роутеры для каждого домена)
+- **Порт**: 3001 (localhost)
+- **Домены**: analytics.borisovai.ru, analytics.borisovai.tech
+- **UI**: `management-ui/public/analytics.html`
+- **API**: `GET /api/analytics/status`
+- **CI/CD**: Автоматическая установка Docker (`install:docker` job) и Umami (`install:umami` job)
+- **Деплой**: `scripts/ci/deploy-umami.sh` (инкрементальный, обновление образов и конфигов)
+- **Интеграция**: [docs/agents/AGENT_ANALYTICS.md](docs/agents/AGENT_ANALYTICS.md)
 
 ## Установка и обновление
 

@@ -1206,6 +1206,56 @@ app.get('/api/tunnels/client-config', requireSessionAuth, (req, res) => {
     res.send(toml);
 });
 
+// ============================================================
+// Аналитика (Umami) — статус
+// ============================================================
+
+// GET /api/analytics/status — статус Umami Analytics
+app.get('/api/analytics/status', requireAuth, async (req, res) => {
+    try {
+        // Проверка Docker контейнера
+        let isRunning = false;
+        try {
+            const output = execSync('docker ps --filter name=umami --format "{{.Names}}"', {
+                encoding: 'utf8',
+                stdio: 'pipe'
+            }).trim();
+            isRunning = output === 'umami';
+        } catch (error) {
+            // Docker не установлен или контейнер не найден
+            isRunning = false;
+        }
+
+        // Health check
+        let healthy = false;
+        if (isRunning) {
+            try {
+                const response = await axios.get('http://127.0.0.1:3001/api/heartbeat', { timeout: 3000 });
+                healthy = response.status === 200;
+            } catch (error) {
+                healthy = false;
+            }
+        }
+
+        // Получаем домены (функция buildAllDomains уже существует в server.js)
+        const domains = buildAllDomains('analytics');
+
+        res.json({
+            installed: isRunning,
+            running: healthy,
+            domains: domains ? domains.split(',') : [],
+            port: installConfig.umami_port || 3001,
+            script_name: installConfig.umami_tracker_script || 'stats'
+        });
+    } catch (error) {
+        res.status(500).json({
+            installed: false,
+            running: false,
+            error: error.message
+        });
+    }
+});
+
 // Главная страница (авторизация на уровне Traefik/Authelia)
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));

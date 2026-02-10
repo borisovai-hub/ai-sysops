@@ -1,0 +1,42 @@
+# Umami Analytics — Docker Compose конфигурация (SQLite)
+# Используется community fork с поддержкой SQLite: github.com/Maxime-J/umami-sqlite
+#
+# Развёртывание:
+#   1. Создать .env файл с переменными окружения
+#   2. docker compose up -d
+#   3. Открыть http://localhost:3001 и создать admin пользователя
+#
+# Бэкап SQLite БД:
+#   docker exec umami sqlite3 /app/data/umami.db ".backup /app/data/umami-backup.db"
+#   docker cp umami:/app/data/umami-backup.db ./backups/
+#
+# Миграция на PostgreSQL (если потребуется):
+#   1. docker exec umami sqlite3 /app/data/umami.db .dump > umami-backup.sql
+#   2. Конвертировать SQL в PostgreSQL формат
+#   3. Изменить образ на ghcr.io/umami-software/umami:postgresql-latest
+#   4. Добавить контейнер PostgreSQL
+
+services:
+  umami:
+    image: ghcr.io/maxime-j/umami-sqlite:latest
+    container_name: umami
+    env_file: .env
+    environment:
+      DATABASE_URL: file:/app/data/umami.db
+      TRACKER_SCRIPT_NAME: ${TRACKER_SCRIPT_NAME:-stats}
+      # APP_SECRET генерируется автоматически при первом запуске
+    ports:
+      - "127.0.0.1:3001:3000"  # Только localhost, Traefik проксирует
+    volumes:
+      - umami-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/heartbeat || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  umami-data:
+    name: umami-data

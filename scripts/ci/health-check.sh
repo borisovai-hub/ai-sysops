@@ -47,6 +47,18 @@ else
     echo "ПРЕДУПРЕЖДЕНИЕ"
 fi
 
+# Umami Analytics (опционально)
+if docker ps --filter name=umami --format "{{.Names}}" 2>/dev/null | grep -q "^umami$"; then
+    echo -n "Umami Analytics (порт 3001)... "
+    if curl -sf --max-time 5 http://127.0.0.1:3001/api/heartbeat > /dev/null 2>&1; then
+        echo "OK"
+    else
+        echo "ПРЕДУПРЕЖДЕНИЕ (контейнер работает, но API не отвечает)"
+    fi
+else
+    echo "Umami Analytics — не установлен (пропуск)"
+fi
+
 echo ""
 if [ "$ERRORS" -gt 0 ]; then
     echo "Health check FAILED ($ERRORS ошибок)"

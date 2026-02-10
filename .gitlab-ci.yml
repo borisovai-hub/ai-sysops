@@ -21,6 +21,28 @@ validate:configs:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
+# Автоматическая установка Docker (для Umami)
+install:docker:
+  stage: install
+  tags:
+    - deploy-root
+  needs: []
+  script:
+    - bash scripts/ci/install-docker.sh
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# Автоматическая установка Umami Analytics
+install:umami:
+  stage: install
+  tags:
+    - deploy-root
+  needs: [install:docker]
+  script:
+    - bash scripts/single-machine/install-umami.sh
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
 # Ручная установка компонентов (кнопка Play в GitLab UI)
 install:authelia:
   stage: install
@@ -50,6 +72,7 @@ deploy:
   stage: deploy
   tags:
     - deploy-root
+  needs: [install:docker, install:umami]
   script:
     # Рендеринг конфигов из шаблонов + CI Variables
     - bash scripts/ci/render-configs.sh
@@ -65,6 +88,9 @@ deploy:
 
     # Деплой Authelia SSO (обновление конфигов если установлена)
     - bash scripts/ci/deploy-authelia.sh
+
+    # Деплой Umami Analytics (обновление конфигов и образов если установлен)
+    - bash scripts/ci/deploy-umami.sh
 
     # Копирование скриптов обслуживания
     - mkdir -p /opt/borisovai-admin/scripts
