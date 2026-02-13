@@ -76,11 +76,11 @@ fi
 
 echo "  [OK] Docker $(docker --version | grep -oP '\d+\.\d+\.\d+') и Compose $(docker compose version --short) установлены"
 
-# Проверка идемпотентности
+# Проверка идемпотентности (docker ps -a ловит и остановленные контейнеры)
 if [ "$FORCE_MODE" != true ]; then
-    if docker ps --filter name=umami --format "{{.Names}}" | grep -q "^umami$"; then
-        echo "  [Пропуск] Umami уже запущен"
-        if docker ps --filter name=umami --format "{{.Status}}" | grep -q "Up"; then
+    if docker ps -a --filter name='^umami$' --format "{{.Names}}" | grep -q "^umami$"; then
+        echo "  [Пропуск] Umami уже установлен"
+        if docker ps --filter name='^umami$' --format "{{.Status}}" | grep -q "Up"; then
             echo "  [OK] Umami работает"
         else
             echo "  [Предупреждение] Контейнер umami существует, но не запущен"
@@ -196,21 +196,29 @@ if [ -z "$SERVER_IP" ]; then
 else
     echo "  IP сервера: $SERVER_IP"
 
-    # Создание DNS записей для всех base_domains (с middle-сегментом)
+    # Создание DNS записей для всех base_domains (идемпотентно — проверяем существующие)
+    DNS_API_BASE="http://127.0.0.1:5353"
+    EXISTING_RECORDS=$(curl -sf "${DNS_API_BASE}/api/records" 2>/dev/null || echo '{"records":[]}')
+
     if command -v build_service_domains &>/dev/null; then
         # Создаём DNS записи для analytics.dev.<base_domain>
         while IFS= read -r base; do
             [ -z "$base" ] && continue
             FULL_DOMAIN="${ANALYTICS_PREFIX}.${ANALYTICS_MIDDLE}.${base}"
 
-            # Создаём A-запись через DNS API
-            if curl -sf -X POST "http://127.0.0.1:5353/api/records" \
-                -H "Content-Type: application/json" \
-                -d "{\"domain\":\"${FULL_DOMAIN}\",\"type\":\"A\",\"value\":\"${SERVER_IP}\"}" \
-                >/dev/null 2>&1; then
-                echo "  [OK] DNS запись создана: ${FULL_DOMAIN} → ${SERVER_IP}"
+            # Проверяем, существует ли запись (по домену)
+            if echo "$EXISTING_RECORDS" | grep -q "\"${FULL_DOMAIN}\""; then
+                echo "  [Пропуск] DNS запись ${FULL_DOMAIN} уже существует"
             else
-                echo "  [Предупреждение] Не удалось создать DNS запись для ${FULL_DOMAIN}"
+                # Создаём A-запись через DNS API
+                if curl -sf -X POST "${DNS_API_BASE}/api/records" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"domain\":\"${FULL_DOMAIN}\",\"type\":\"A\",\"value\":\"${SERVER_IP}\"}" \
+                    >/dev/null 2>&1; then
+                    echo "  [OK] DNS запись создана: ${FULL_DOMAIN} → ${SERVER_IP}"
+                else
+                    echo "  [Предупреждение] Не удалось создать DNS запись для ${FULL_DOMAIN}"
+                fi
             fi
         done < <(get_base_domains 2>/dev/null)
     else
