@@ -662,6 +662,27 @@ app.post('/api/services', requireAuth, async (req, res) => {
     }
 });
 
+// Хелпер: найти конфиг-файл сервиса по имени (учитывает мульти-роутерные файлы)
+async function findServiceConfig(name) {
+    // Сначала пробуем прямое соответствие: name → name.yml
+    const directPath = path.join(TRAEFIK_DYNAMIC_DIR, `${name}.yml`);
+    if (await fs.pathExists(directPath)) {
+        return { configPath: directPath, configFile: `${name}.yml`, routerName: null };
+    }
+    // Если прямого файла нет — ищем роутер с таким именем во всех YAML-файлах
+    const files = await fs.readdir(TRAEFIK_DYNAMIC_DIR);
+    for (const file of files) {
+        if (!file.endsWith('.yml')) continue;
+        const filePath = path.join(TRAEFIK_DYNAMIC_DIR, file);
+        const content = await fs.readFile(filePath, 'utf8');
+        const data = yaml.parse(content);
+        if (data.http && data.http.routers && data.http.routers[name]) {
+            return { configPath: filePath, configFile: file, routerName: name };
+        }
+    }
+    return null;
+}
+
 // API: Обновление сервиса (домен, IP, порт)
 app.put('/api/services/:name', requireAuth, async (req, res) => {
     try {
@@ -682,19 +703,21 @@ app.put('/api/services/:name', requireAuth, async (req, res) => {
         if (!internalIp || !port) {
             return res.status(400).json({ error: 'Необходимы internalIp и port' });
         }
-        const configPath = path.join(TRAEFIK_DYNAMIC_DIR, `${name}.yml`);
-        if (!(await fs.pathExists(configPath))) {
+        const found = await findServiceConfig(name);
+        if (!found) {
             return res.status(404).json({ error: 'Сервис не найден' });
         }
+        const { configPath, routerName: foundRouter } = found;
         const content = await fs.readFile(configPath, 'utf8');
         const data = yaml.parse(content);
-        const routerName = data.http && data.http.routers && Object.keys(data.http.routers)[0];
+        // Для мульти-роутерных файлов обновляем конкретный роутер, для обычных — первый
+        const targetRouter = foundRouter || (data.http && data.http.routers && Object.keys(data.http.routers)[0]);
         const serviceName = data.http && data.http.services && Object.keys(data.http.services)[0];
-        if (!routerName || !serviceName) {
+        if (!targetRouter || !serviceName) {
             return res.status(500).json({ error: 'Некорректный формат конфигурации' });
         }
-        const hostRule = domain ? buildHostRule(domain) : data.http.routers[routerName].rule;
-        data.http.routers[routerName].rule = hostRule;
+        const hostRule = domain ? buildHostRule(domain) : data.http.routers[targetRouter].rule;
+        data.http.routers[targetRouter].rule = hostRule;
         data.http.services[serviceName].loadBalancer.servers[0].url = `http://${internalIp}:${port}`;
         await fs.writeFile(configPath, yaml.stringify(data));
         reloadTraefik();
@@ -722,11 +745,25 @@ app.delete('/api/services/:name', requireAuth, async (req, res) => {
         if (!isSafeServiceName(name)) {
             return res.status(400).json({ error: 'Недопустимое имя сервиса' });
         }
-        const configPath = path.join(TRAEFIK_DYNAMIC_DIR, `${name}.yml`);
-        if (!(await fs.pathExists(configPath))) {
+        const found = await findServiceConfig(name);
+        if (!found) {
             return res.status(404).json({ error: 'Сервис не найден' });
         }
-        await deleteTraefikConfig(name);
+        if (found.routerName) {
+            // Мульти-роутерный файл: удаляем конкретный роутер
+            const content = await fs.readFile(found.configPath, 'utf8');
+            const data = yaml.parse(content);
+            delete data.http.routers[found.routerName];
+            const remainingRouters = Object.keys(data.http.routers);
+            if (remainingRouters.length === 0) {
+                // Все роутеры удалены — удаляем файл целиком
+                await fs.remove(found.configPath);
+            } else {
+                await fs.writeFile(found.configPath, yaml.stringify(data));
+            }
+        } else {
+            await deleteTraefikConfig(name);
+        }
         await deleteDnsRecord(name);
         reloadTraefik();
         res.json({ success: true, message: 'Сервис удален' });
