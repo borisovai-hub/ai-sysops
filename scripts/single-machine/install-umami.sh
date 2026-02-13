@@ -153,6 +153,11 @@ echo "[5/7] Запуск контейнеров..."
 
 cd /etc/umami
 
+# Создаём volume и выставляем права ДО запуска контейнера
+# Umami работает как uid=1001 (nextjs), нужны права на запись в /app/data
+docker volume create umami-data 2>/dev/null || true
+chown -R 1001:65533 /var/lib/docker/volumes/umami-data/_data/ 2>/dev/null || true
+
 if ! docker compose up -d; then
     echo "  [ОШИБКА] Не удалось запустить контейнеры"
     docker compose logs
