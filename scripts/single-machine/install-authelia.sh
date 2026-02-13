@@ -242,6 +242,7 @@ done < <(get_base_domains)
 ADMIN_DOMAINS=""
 N8N_DOMAINS=""
 MAIL_DOMAINS=""
+ANALYTICS_DOMAINS=""
 while IFS= read -r base; do
     [ -z "$base" ] && continue
     ADMIN_DOMAINS="${ADMIN_DOMAINS}
@@ -250,6 +251,8 @@ while IFS= read -r base; do
         - 'n8n.dev.${base}'"
     MAIL_DOMAINS="${MAIL_DOMAINS}
         - 'mail.dev.${base}'"
+    ANALYTICS_DOMAINS="${ANALYTICS_DOMAINS}
+        - 'analytics.dev.${base}'"
 done < <(get_base_domains)
 
 # OIDC redirect URIs
@@ -335,6 +338,9 @@ access_control:
       policy: two_factor
     # Mailu
     - domain:${MAIL_DOMAINS}
+      policy: two_factor
+    # Umami Analytics
+    - domain:${ANALYTICS_DOMAINS}
       policy: two_factor
 
 notifier:

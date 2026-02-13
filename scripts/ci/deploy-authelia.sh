@@ -106,6 +106,7 @@ _ensure_authelia_middleware() {
 echo "  Проверка authelia@file middleware..."
 _ensure_authelia_middleware "$TRAEFIK_DYN/management-ui.yml"
 _ensure_authelia_middleware "$TRAEFIK_DYN/n8n.yml"
+_ensure_authelia_middleware "$TRAEFIK_DYN/analytics.yml"
 
 # Mailu: отдельная обработка (mailu-compress)
 if [ -f "$TRAEFIK_DYN/mailu.yml" ] && ! grep -q "authelia@file" "$TRAEFIK_DYN/mailu.yml"; then

@@ -269,6 +269,8 @@ else
         - websecure
       tls:
         certResolver: letsencrypt
+      middlewares:
+        - authelia@file
 "
     done < <(get_base_domains 2>/dev/null)
 
