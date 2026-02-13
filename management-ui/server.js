@@ -1296,6 +1296,43 @@ app.get('/api/analytics/status', requireAuth, async (req, res) => {
     }
 });
 
+// SSO bridge для Umami Analytics — автологин через Authelia
+// Traefik направляет analytics.dev.*/sso-bridge → management-ui (этот сервер)
+// Страница сохраняет auth-токен в localStorage и редиректит на Umami dashboard
+app.get('/sso-bridge', async (req, res) => {
+    // Проверяем что запрос прошёл через Authelia ForwardAuth
+    const remoteUser = req.headers['remote-user'];
+    if (!remoteUser) {
+        return res.status(403).send('Доступ запрещён (требуется аутентификация через Authelia)');
+    }
+    try {
+        const umamiPort = installConfig.umami_port || 3001;
+        const umamiPassword = config.umami_admin_password || 'umami';
+        const loginResp = await axios.post(`http://127.0.0.1:${umamiPort}/api/auth/login`, {
+            username: 'admin',
+            password: umamiPassword
+        }, { timeout: 5000 });
+        const token = loginResp.data.token;
+        if (!token) {
+            return res.status(500).send('Umami SSO: токен не получен');
+        }
+        // Umami хранит auth в localStorage: key="umami.auth", value=JSON.stringify(token)
+        const tokenJson = JSON.stringify(token);
+        res.send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Вход...</title></head>
+<body><p>Выполняется вход в Umami Analytics...</p>
+<script>
+try {
+  localStorage.setItem("umami.auth", ${JSON.stringify(tokenJson)});
+} catch(e) { console.error("SSO storage error:", e); }
+window.location.replace("/");
+</script></body></html>`);
+    } catch (error) {
+        console.error('Umami SSO bridge ошибка:', error.message);
+        res.status(500).send('SSO вход не удался: ' + error.message);
+    }
+});
+
 // Главная страница (авторизация на уровне Traefik/Authelia)
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));

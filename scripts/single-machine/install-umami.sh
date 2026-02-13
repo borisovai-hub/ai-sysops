@@ -252,18 +252,48 @@ if [ ! -d "$TRAEFIK_DYNAMIC_DIR" ]; then
     echo "  [Предупреждение] Директория $TRAEFIK_DYNAMIC_DIR не найдена"
     echo "  Traefik конфиг не создан — создайте вручную"
 else
-    # Генерация раздельных роутеров (паттерн из install-authelia.sh)
-    ROUTERS_YAML=""
-    HAS_DOMAINS=false
-
+    # Генерация analytics.yml с SSO bridge через Python (безопасная работа с backticks)
+    MGMT_PORT=3000
+    DOMAINS_LIST=""
     while IFS= read -r base; do
         [ -z "$base" ] && continue
-        HAS_DOMAINS=true
-        SUFFIX=$(echo "$base" | sed 's/.*\.//')
-        FULL_DOMAIN="${ANALYTICS_PREFIX}.${ANALYTICS_MIDDLE}.${base}"
-        ROUTERS_YAML="${ROUTERS_YAML}
-    analytics-${SUFFIX}:
-      rule: \"Host(\`${FULL_DOMAIN}\`)\"
+        [ -n "$DOMAINS_LIST" ] && DOMAINS_LIST="${DOMAINS_LIST},"
+        DOMAINS_LIST="${DOMAINS_LIST}${base}"
+    done < <(get_base_domains 2>/dev/null)
+
+    if [ -n "$DOMAINS_LIST" ]; then
+        python3 -c "
+import sys
+bt = chr(96)
+domains = '${DOMAINS_LIST}'.split(',')
+prefix = '${ANALYTICS_PREFIX}'
+middle = '${ANALYTICS_MIDDLE}'
+umami_port = '${UMAMI_PORT}'
+mgmt_port = '${MGMT_PORT}'
+
+mw = ''
+routers = ''
+for d in domains:
+    suffix = d.split('.')[-1]
+    full = f'{prefix}.{middle}.{d}'
+    mw += f'''    analytics-login-redirect-{suffix}:
+      redirectRegex:
+        regex: '^https://{full.replace('.', chr(92)+'.')}/login\$'
+        replacement: 'https://{full}/sso-bridge'
+        permanent: false
+'''
+    routers += f'''    analytics-sso-{suffix}:
+      rule: \"Host({bt}{full}{bt}) && Path({bt}/sso-bridge{bt})\"
+      service: analytics-sso
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authelia@file
+      priority: 200
+    analytics-login-{suffix}:
+      rule: \"Host({bt}{full}{bt}) && Path({bt}/login{bt})\"
       service: analytics
       entryPoints:
         - websecure
@@ -271,24 +301,41 @@ else
         certResolver: letsencrypt
       middlewares:
         - authelia@file
-"
-    done < <(get_base_domains 2>/dev/null)
+        - analytics-login-redirect-{suffix}
+      priority: 100
+    analytics-{suffix}:
+      rule: \"Host({bt}{full}{bt})\"
+      service: analytics
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authelia@file
+'''
 
-    if [ "$HAS_DOMAINS" = true ]; then
-        cat > "$ANALYTICS_YML" << TRAEFIKEOF
-# Umami Analytics — Traefik dynamic конфигурация
-# Раздельные роутеры для каждого базового домена (избегаем SAN-конфликт Let's Encrypt)
+content = f'''# Umami Analytics - Traefik dynamic config
+# SSO: /login -> /sso-bridge (management-ui) -> autologin via Authelia
 http:
-  routers:${ROUTERS_YAML}
+  middlewares:
+{mw}
+  routers:
+{routers}
   services:
     analytics:
       loadBalancer:
         servers:
-          - url: 'http://127.0.0.1:${UMAMI_PORT}'
-TRAEFIKEOF
-
+          - url: 'http://127.0.0.1:{umami_port}'
+    analytics-sso:
+      loadBalancer:
+        servers:
+          - url: 'http://127.0.0.1:{mgmt_port}'
+'''
+with open('${ANALYTICS_YML}', 'w') as f:
+    f.write(content)
+"
         chmod 644 "$ANALYTICS_YML"
-        echo "  [OK] analytics.yml создан в $TRAEFIK_DYNAMIC_DIR"
+        echo "  [OK] analytics.yml создан в $TRAEFIK_DYNAMIC_DIR (с SSO bridge)"
     else
         echo "  [Предупреждение] Не удалось получить base_domains"
         echo "  Создайте analytics.yml вручную"

@@ -16,6 +16,38 @@
 - **Скрипты**: Bash, совместимы с Debian 11/12 и Ubuntu 20.04/22.04
 - **Язык комментариев и UI**: русский
 
+## Критические правила (из опыта ошибок)
+
+### Traefik: мульти-роутерные файлы
+- Один YAML файл (например `analytics.yml`) может содержать **несколько роутеров** (`analytics-ru`, `analytics-tech`)
+- GET /api/services возвращает `routerName` для мульти-роутерных файлов, а не имя файла
+- **Все операции** (PUT, DELETE, поиск) должны использовать `findServiceConfig()` — искать роутер внутри YAML, а не только по имени файла
+- **Никогда** не должно быть двух YAML файлов с роутерами на один домен (как `admin.yml` + `management-ui.yml`) — это вызывает конфликт приоритетов
+
+### Authelia SSO: чеклист для нового сервиса
+При добавлении нового сервиса за Authelia, обязательно обновить **ВСЕ** точки:
+1. **Traefik роутер** — добавить `middlewares: [authelia@file]`
+2. **Authelia access_control** — добавить домены в `configuration.yml` → `rules` с `policy: two_factor`
+3. **install-authelia.sh** — добавить домены в генерацию `access_control` (переменная `*_DOMAINS`)
+4. **deploy-authelia.sh** — добавить `_ensure_authelia_middleware` для нового YAML
+5. **install-<service>.sh** — генерация Traefik YAML должна включать `authelia@file`
+6. **deploy-<service>.sh** — аналогично
+
+### Docker: права на volumes
+- Контейнеры часто работают как non-root (uid 1001, 1000 и т.д.)
+- **Перед первым запуском** `docker compose up -d` создать volume и выставить `chown` на правильный uid
+- Проверять uid: `docker run --rm --entrypoint='' <image> id`
+
+### Идемпотентность install-скриптов
+- `docker ps` показывает только **запущенные** контейнеры → использовать `docker ps -a` для проверки существования
+- DNS записи: **всегда** проверять существующие через `GET /api/records` перед `POST` (как в `deploy-management-ui.sh`)
+- Конфиги install-config.json: **всегда** сохранять значения (`save_config_value`) включая middle-сегменты
+
+### Домены: middle-сегмент
+- Dev-сервисы используют формат `<prefix>.<middle>.<base_domain>` (например `analytics.dev.borisovai.ru`)
+- **Всегда** использовать переменную `*_MIDDLE` (не захардкоживать!) и сохранять в install-config.json
+- Проверять что middle-сегмент не пустой перед генерацией доменов
+
 ## Командная работа
 
 Проект реализуется командой агентов. При работе над задачами:
