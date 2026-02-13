@@ -271,6 +271,10 @@ middle = '${ANALYTICS_MIDDLE}'
 umami_port = '${UMAMI_PORT}'
 mgmt_port = '${MGMT_PORT}'
 
+tracker = '${TRACKER_SCRIPT_NAME}'
+if not tracker:
+    tracker = 'stats'
+
 mw = ''
 routers = ''
 for d in domains:
@@ -282,7 +286,15 @@ for d in domains:
         replacement: 'https://{full}/sso-bridge'
         permanent: false
 '''
-    routers += f'''    analytics-sso-{suffix}:
+    routers += f'''    analytics-tracking-{suffix}:
+      rule: \"Host({bt}{full}{bt}) && (Path({bt}/api/send{bt}) || Path({bt}/{tracker}.js{bt}))\"
+      service: analytics
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      priority: 300
+    analytics-sso-{suffix}:
       rule: \"Host({bt}{full}{bt}) && Path({bt}/sso-bridge{bt})\"
       service: analytics-sso
       entryPoints:
@@ -316,6 +328,7 @@ for d in domains:
 
 content = f'''# Umami Analytics - Traefik dynamic config
 # SSO: /login -> /sso-bridge (management-ui) -> autologin via Authelia
+# Tracking API (/api/send, /{tracker}.js) - public, no Authelia
 http:
   middlewares:
 {mw}
