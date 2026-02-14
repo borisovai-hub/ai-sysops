@@ -6,6 +6,7 @@ const axios = require('axios');
 const yaml = require('yaml');
 const { execSync } = require('child_process');
 const crypto = require('crypto');
+const multer = require('multer');
 
 const app = express();
 const PORT = 3000;
@@ -1330,6 +1331,192 @@ window.location.replace("/");
     } catch (error) {
         console.error('Umami SSO bridge ошибка:', error.message);
         res.status(500).send('SSO вход не удался: ' + error.message);
+    }
+});
+
+// ==================== File Server API ====================
+
+const FILES_ROOT = '/srv/files';
+
+// Защита от path traversal — резолвит путь и проверяет что внутри FILES_ROOT
+function safePath(userPath) {
+    const resolved = path.resolve(FILES_ROOT, userPath || '');
+    if (!resolved.startsWith(FILES_ROOT)) return null;
+    return resolved;
+}
+
+// multer для загрузки файлов (лимит 10 GB, хранение во временной папке)
+const upload = multer({
+    dest: '/tmp/fileserver-uploads',
+    limits: { fileSize: 10 * 1024 * 1024 * 1024 }
+});
+
+// GET /api/files/status — статус контейнера + диск
+app.get('/api/files/status', requireAuth, async (req, res) => {
+    try {
+        let isRunning = false;
+        try {
+            const output = execSync('docker ps --filter name=fileserver --format "{{.Names}}"', {
+                encoding: 'utf8', stdio: 'pipe'
+            }).trim();
+            isRunning = output === 'fileserver';
+        } catch (e) {
+            isRunning = false;
+        }
+
+        let healthy = false;
+        if (isRunning) {
+            try {
+                const resp = await axios.get(`http://127.0.0.1:${installConfig.files_port || 3002}/health`, { timeout: 3000 });
+                healthy = resp.status === 200;
+            } catch (e) {
+                healthy = false;
+            }
+        }
+
+        // Информация о диске
+        let disk = { total: 0, used: 0, available: 0, percent: 0 };
+        try {
+            const dfOut = execSync(`df -B1 ${FILES_ROOT} 2>/dev/null | tail -1`, {
+                encoding: 'utf8', stdio: 'pipe'
+            }).trim();
+            const parts = dfOut.split(/\s+/);
+            if (parts.length >= 5) {
+                disk.total = parseInt(parts[1]) || 0;
+                disk.used = parseInt(parts[2]) || 0;
+                disk.available = parseInt(parts[3]) || 0;
+                disk.percent = parseInt(parts[4]) || 0;
+            }
+        } catch (e) {}
+
+        const prefix = installConfig.files_prefix || 'files';
+        const middle = installConfig.files_middle || 'dev';
+        const domains = buildAllDomains(`${prefix}.${middle}`);
+
+        res.json({
+            installed: isRunning,
+            running: healthy,
+            domains: domains ? domains.split(',') : [],
+            port: installConfig.files_port || 3002,
+            disk
+        });
+    } catch (error) {
+        res.status(500).json({ installed: false, running: false, error: error.message });
+    }
+});
+
+// GET /api/files/browse?path=/ — листинг файлов
+app.get('/api/files/browse', requireAuth, async (req, res) => {
+    try {
+        const dirPath = safePath(req.query.path || '/');
+        if (!dirPath) return res.status(400).json({ error: 'Недопустимый путь' });
+        if (!await fs.pathExists(dirPath)) return res.status(404).json({ error: 'Директория не найдена' });
+
+        const stat = await fs.stat(dirPath);
+        if (!stat.isDirectory()) return res.status(400).json({ error: 'Путь не является директорией' });
+
+        const entries = await fs.readdir(dirPath);
+        const items = [];
+        for (const name of entries) {
+            if (name.startsWith('.')) continue;
+            try {
+                const fullPath = path.join(dirPath, name);
+                const s = await fs.stat(fullPath);
+                items.push({
+                    name,
+                    type: s.isDirectory() ? 'directory' : 'file',
+                    size: s.isDirectory() ? 0 : s.size,
+                    modified: s.mtime.toISOString()
+                });
+            } catch (e) {}
+        }
+
+        // Сортировка: папки первые, потом файлы, по имени
+        items.sort((a, b) => {
+            if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+            return a.name.localeCompare(b.name);
+        });
+
+        const relativePath = path.relative(FILES_ROOT, dirPath) || '/';
+        res.json({ path: '/' + relativePath.replace(/\\/g, '/').replace(/^\/$/, ''), items });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/files/upload?path=/ — загрузка файла (multipart)
+app.post('/api/files/upload', requireAuth, upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'Файл не получен' });
+
+        const destDir = safePath(req.body.path || '/');
+        if (!destDir) {
+            await fs.remove(req.file.path);
+            return res.status(400).json({ error: 'Недопустимый путь' });
+        }
+
+        if (!await fs.pathExists(destDir)) {
+            await fs.remove(req.file.path);
+            return res.status(404).json({ error: 'Директория не найдена' });
+        }
+
+        const destFile = path.join(destDir, req.file.originalname);
+        // Проверка что итоговый путь внутри FILES_ROOT
+        if (!destFile.startsWith(FILES_ROOT)) {
+            await fs.remove(req.file.path);
+            return res.status(400).json({ error: 'Недопустимое имя файла' });
+        }
+
+        await fs.move(req.file.path, destFile, { overwrite: true });
+        res.json({ ok: true, name: req.file.originalname, size: req.file.size });
+    } catch (error) {
+        if (req.file) await fs.remove(req.file.path).catch(() => {});
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE /api/files/delete — удалить файл или папку
+app.delete('/api/files/delete', requireAuth, async (req, res) => {
+    try {
+        const targetPath = safePath(req.body.path);
+        if (!targetPath) return res.status(400).json({ error: 'Недопустимый путь' });
+        if (targetPath === FILES_ROOT) return res.status(400).json({ error: 'Нельзя удалить корневую директорию' });
+        if (!await fs.pathExists(targetPath)) return res.status(404).json({ error: 'Файл не найден' });
+
+        await fs.remove(targetPath);
+        res.json({ ok: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/files/mkdir — создать папку
+app.post('/api/files/mkdir', requireAuth, async (req, res) => {
+    try {
+        const dirPath = safePath(req.body.path);
+        if (!dirPath) return res.status(400).json({ error: 'Недопустимый путь' });
+        if (await fs.pathExists(dirPath)) return res.status(409).json({ error: 'Директория уже существует' });
+
+        await fs.mkdirp(dirPath);
+        res.json({ ok: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/files/rename — переименовать файл/папку
+app.post('/api/files/rename', requireAuth, async (req, res) => {
+    try {
+        const fromPath = safePath(req.body.from);
+        const toPath = safePath(req.body.to);
+        if (!fromPath || !toPath) return res.status(400).json({ error: 'Недопустимый путь' });
+        if (!await fs.pathExists(fromPath)) return res.status(404).json({ error: 'Исходный файл не найден' });
+        if (await fs.pathExists(toPath)) return res.status(409).json({ error: 'Целевой путь уже существует' });
+
+        await fs.move(fromPath, toPath);
+        res.json({ ok: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 

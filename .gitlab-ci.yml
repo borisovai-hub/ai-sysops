@@ -68,6 +68,18 @@ install:frps:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
+install:fileserver:
+  stage: install
+  tags:
+    - deploy-root
+  needs: [install:docker]
+  script:
+    - bash scripts/single-machine/install-fileserver.sh
+  when: manual
+  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
 deploy:
   stage: deploy
   tags:
@@ -91,6 +103,9 @@ deploy:
 
     # Деплой Umami Analytics (обновление конфигов и образов если установлен)
     - bash scripts/ci/deploy-umami.sh
+
+    # Деплой файлового сервера (обновление конфигов и образов если установлен)
+    - bash scripts/ci/deploy-fileserver.sh
 
     # Копирование скриптов обслуживания
     - mkdir -p /opt/borisovai-admin/scripts

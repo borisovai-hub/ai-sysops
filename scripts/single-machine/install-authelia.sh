@@ -243,6 +243,7 @@ ADMIN_DOMAINS=""
 N8N_DOMAINS=""
 MAIL_DOMAINS=""
 ANALYTICS_DOMAINS=""
+FILES_DOMAINS=""
 while IFS= read -r base; do
     [ -z "$base" ] && continue
     ADMIN_DOMAINS="${ADMIN_DOMAINS}
@@ -253,6 +254,8 @@ while IFS= read -r base; do
         - 'mail.dev.${base}'"
     ANALYTICS_DOMAINS="${ANALYTICS_DOMAINS}
         - 'analytics.dev.${base}'"
+    FILES_DOMAINS="${FILES_DOMAINS}
+        - 'files.dev.${base}'"
 done < <(get_base_domains)
 
 # OIDC redirect URIs
@@ -341,6 +344,14 @@ access_control:
       policy: two_factor
     # Umami Analytics
     - domain:${ANALYTICS_DOMAINS}
+      policy: two_factor
+    # File Server — публичные файлы без авторизации
+    - domain:${FILES_DOMAINS}
+      resources:
+        - '^/public/.*'
+      policy: bypass
+    # File Server — остальное через 2FA
+    - domain:${FILES_DOMAINS}
       policy: two_factor
 
 notifier:
