@@ -55,9 +55,15 @@ TRANSFER_TOKEN_SALT=<openssl rand -base64 32>
 JWT_SECRET=<openssl rand -base64 32>
 PUBLIC_URL=https://api.borisovai.tech
 ADMIN_URL=https://api.borisovai.tech/admin
+GITLAB_URL=https://gitlab.dev.borisovai.ru
+GITLAB_TOKEN=<GitLab PAT с api scope>
+GITLAB_WEBHOOK_SECRET=<секрет для верификации вебхуков>
+GITLAB_FILTER_TOPIC=portfolio
 ```
 
-Для автоматической ревалидации фронта после публикации контента добавьте в BACKEND_ENV: `PUBLISHER_SITE_URL=https://borisovai.tech` и `REVALIDATION_SECRET=<тот же что во FRONTEND_ENV>`.
+Дополнительные переменные:
+- `GITLAB_*` — для автоматической синхронизации проектов из GitLab (плагин v1, gitlab-sync)
+- `PUBLISHER_SITE_URL` и `REVALIDATION_SECRET` — для ревалидации фронта после публикации контента
 
 ---
 
@@ -78,6 +84,8 @@ npm run build
 ```
 
 В GitLab CI этап `build` уже выполняет эти шаги; артефакты передаются в этап `deploy`.
+
+**Важно:** PM2 для Strapi (backend) должен использовать `exec_mode: "fork"` в `ecosystem.config.js`. Cluster mode не работает с `script: "npm"` (npm — не JS-файл, `child_process.fork()` падает без логов).
 
 ---
 
@@ -114,3 +122,52 @@ Runner должен быть с тегами `deploy-staging` или `deploy-pro
 - [ ] Для staging: изменения в ветке `dev`, push запускает pipeline
 - [ ] Для production: изменения в `master`, деплой запускается вручную из GitLab
 - [ ] При проблемах деплоя: [DEPLOYMENT_ISSUES.md](DEPLOYMENT_ISSUES.md)
+
+---
+
+## 7. GitLab Webhook (автосинхронизация проектов)
+
+При push в GitLab-проект с топиком `portfolio`, Strapi автоматически обновляет данные на сайте (описание, версия, ссылки скачивания).
+
+**Настройка webhook в GitLab:**
+- URL: `https://api.borisovai.tech/api/gitlab-webhook`
+- Secret Token: значение `GITLAB_WEBHOOK_SECRET` из BACKEND_ENV
+- Trigger: Push events
+
+**Как это работает:**
+1. GitLab отправляет POST на `/api/gitlab-webhook` с заголовком `X-Gitlab-Token`
+2. Middleware в `backend/src/index.js` → `register()` перехватывает запрос до content-api auth
+3. Проверяет токен, загружает данные проекта из GitLab API
+4. Фильтрует по топику `portfolio` (настраивается через `GITLAB_FILTER_TOPIC`)
+5. Синхронизирует проект через плагин v1 (`gitlab-sync` service)
+
+**Диагностика:** `curl https://api.borisovai.tech/api/gitlab-webhook/diagnose`
+
+---
+
+## 8. Файловый сервер (релизы и модели)
+
+Для хранения бинарных файлов (инсталляторы, AI-модели) используется файловый сервер.
+
+| Параметр | Значение |
+|----------|----------|
+| URL | `https://files.dev.borisovai.ru/public/` |
+| Сервер | Docker nginx на 144.91.108.139 |
+| Root | `/srv/files/public/` |
+| Загрузка | `scp FILE root@144.91.108.139:/srv/files/public/PATH/` |
+
+**Структура:**
+```
+/srv/files/public/
+├── downloads/          # Релизы приложений
+│   └── voice-input/
+│       └── v1.1.0/
+│           ├── VoiceInput-v1.1.0-CPU.zip   (414 MB)
+│           └── VoiceInput-v1.1.0-CUDA.zip  (1.6 GB)
+└── models/             # AI-модели (9 моделей)
+    ├── faster-whisper-base/
+    ├── gigaam-v3-onnx/
+    └── ...
+```
+
+Ссылки на скачивание хранятся в Strapi (поле `downloads` у проекта — JSON-массив с `name`, `url`, `platform`, `size`).
