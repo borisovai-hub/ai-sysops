@@ -323,10 +323,15 @@ if [ -f "$MAILU_ENV" ] && { systemctl is-active --quiet authelia 2>/dev/null || 
         fi
         [ -z "$AUTH_DOMAIN" ] && AUTH_DOMAIN="auth.borisovai.ru"
 
+        # Docker subnet из mailu.env (Traefik приходит через Docker gateway)
+        MAILU_SUBNET=$(grep "^SUBNET=" "$MAILU_ENV" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | head -1)
+        [ -z "$MAILU_SUBNET" ] && MAILU_SUBNET="192.168.203.0/24"
+
         cat >> "$MAILU_ENV" << EOF
 
 # Proxy authentication (SSO через Authelia)
-PROXY_AUTH_WHITELIST=127.0.0.1/32
+# WHITELIST должен включать Docker subnet — Traefik приходит через Docker gateway
+PROXY_AUTH_WHITELIST=${MAILU_SUBNET},127.0.0.1/32
 PROXY_AUTH_HEADER=Remote-Email
 PROXY_AUTH_CREATE=false
 PROXY_AUTH_LOGOUT_URL=https://${AUTH_DOMAIN}/logout
