@@ -19,6 +19,9 @@ const TEMPLATES_DIR = path.join(__dirname, 'templates');
 const INSTALL_CONFIG_FILE = '/etc/install-config.json';
 const AUTHELIA_USERS_DB = '/etc/authelia/users_database.yml';
 const AUTHELIA_BINARY = '/usr/local/bin/authelia';
+const AUTHELIA_NOTIFICATIONS_FILE = '/var/lib/authelia/notifications.txt';
+const AUTHELIA_CONFIG_FILE = '/etc/authelia/configuration.yml';
+const USER_MAILBOXES_FILE = '/etc/management-ui/user-mailboxes.json';
 
 // Загрузка конфигурации
 let config = {};
@@ -607,14 +610,35 @@ function isValidAutheliaUsername(name) {
     return /^[a-zA-Z0-9._-]{1,64}$/.test(name);
 }
 
+// Почтовые ящики пользователей (маппинг username → mailbox email)
+function readUserMailboxes() {
+    try {
+        if (fs.existsSync(USER_MAILBOXES_FILE)) {
+            return JSON.parse(fs.readFileSync(USER_MAILBOXES_FILE, 'utf8'));
+        }
+    } catch (e) {}
+    return {};
+}
+
+function writeUserMailboxes(data) {
+    fs.writeFileSync(USER_MAILBOXES_FILE, JSON.stringify(data, null, 2), 'utf8');
+}
+
+function getUserMailbox(username) {
+    const mailboxes = readUserMailboxes();
+    return mailboxes[username] || `${username}@borisovai.ru`;
+}
+
 // API: Список пользователей Authelia
 app.get('/api/authelia/users', requireSessionAuth, (req, res) => {
     try {
         const users = readAutheliaUsers();
+        const mailboxes = readUserMailboxes();
         const result = Object.entries(users).map(([username, data]) => ({
             username,
             displayname: data.displayname || '',
             email: data.email || '',
+            mailbox: mailboxes[username] || `${username}@borisovai.ru`,
             groups: data.groups || [],
             disabled: !!data.disabled
         }));
@@ -654,6 +678,15 @@ app.post('/api/authelia/users', requireSessionAuth, (req, res) => {
         };
 
         writeAutheliaUsers(users);
+
+        // Сохранить почтовый ящик Mailu (если указан)
+        const mailbox = sanitizeString(req.body.mailbox) || '';
+        if (mailbox) {
+            const mailboxes = readUserMailboxes();
+            mailboxes[username] = mailbox;
+            writeUserMailboxes(mailboxes);
+        }
+
         restartAuthelia();
         res.json({ success: true, message: `Пользователь "${username}" создан` });
     } catch (error) {
@@ -686,6 +719,19 @@ app.put('/api/authelia/users/:username', requireSessionAuth, (req, res) => {
         }
 
         writeAutheliaUsers(users);
+
+        // Обновить почтовый ящик Mailu
+        if (req.body.mailbox !== undefined) {
+            const mailboxes = readUserMailboxes();
+            const mailbox = sanitizeString(req.body.mailbox) || '';
+            if (mailbox && mailbox !== `${username}@borisovai.ru`) {
+                mailboxes[username] = mailbox;
+            } else {
+                delete mailboxes[username]; // дефолт — не храним
+            }
+            writeUserMailboxes(mailboxes);
+        }
+
         restartAuthelia();
         res.json({ success: true, message: `Пользователь "${username}" обновлён` });
     } catch (error) {
@@ -739,6 +785,14 @@ app.delete('/api/authelia/users/:username', requireSessionAuth, (req, res) => {
 
         delete users[username];
         writeAutheliaUsers(users);
+
+        // Удалить маппинг почтового ящика
+        const mailboxes = readUserMailboxes();
+        if (mailboxes[username]) {
+            delete mailboxes[username];
+            writeUserMailboxes(mailboxes);
+        }
+
         restartAuthelia();
         res.json({ success: true, message: `Пользователь "${username}" удалён` });
     } catch (error) {
@@ -746,9 +800,160 @@ app.delete('/api/authelia/users/:username', requireSessionAuth, (req, res) => {
     }
 });
 
+// API: Получение уведомлений Authelia (TOTP-ссылки, коды подтверждения)
+app.get('/api/authelia/notifications', requireSessionAuth, (req, res) => {
+    try {
+        if (!fs.existsSync(AUTHELIA_NOTIFICATIONS_FILE)) {
+            return res.json({ notifications: [] });
+        }
+        const content = fs.readFileSync(AUTHELIA_NOTIFICATIONS_FILE, 'utf8');
+        if (!content.trim()) return res.json({ notifications: [] });
+        // Файл содержит одно или несколько уведомлений, разделённых двойным переводом строки + "Date:"
+        const blocks = content.split(/(?=^Date: )/m).filter(b => b.trim());
+        const notifications = blocks.map(block => {
+            const dateMatch = block.match(/^Date: (.+)$/m);
+            const recipientMatch = block.match(/^Recipient: \{(.+?)\}$/m);
+            const subjectMatch = block.match(/^Subject: (.+)$/m);
+            const bodyStart = block.indexOf('\n', block.indexOf('Subject:'));
+            const body = bodyStart > -1 ? block.slice(bodyStart + 1).trim() : '';
+            // Извлечь email из Recipient: {Display Name email@example.com}
+            let recipientEmail = '';
+            let recipientName = '';
+            if (recipientMatch) {
+                const parts = recipientMatch[1].trim();
+                const emailMatch = parts.match(/[\w.-]+@[\w.-]+/);
+                if (emailMatch) {
+                    recipientEmail = emailMatch[0];
+                    recipientName = parts.replace(recipientEmail, '').trim();
+                }
+            }
+            return {
+                date: dateMatch ? dateMatch[1].trim() : '',
+                recipientEmail,
+                recipientName,
+                subject: subjectMatch ? subjectMatch[1].trim() : '',
+                body
+            };
+        }).reverse(); // Последние сверху
+        res.json({ notifications });
+    } catch (error) {
+        res.status(500).json({ error: 'Ошибка чтения уведомлений: ' + error.message });
+    }
+});
+
+// API: Получение настроек notifier Authelia
+app.get('/api/authelia/notifier', requireSessionAuth, (req, res) => {
+    try {
+        if (!fs.existsSync(AUTHELIA_CONFIG_FILE)) {
+            return res.status(404).json({ error: 'Конфигурация Authelia не найдена' });
+        }
+        const content = fs.readFileSync(AUTHELIA_CONFIG_FILE, 'utf8');
+        const config = yaml.parse(content);
+        const notifier = config.notifier || {};
+        const type = notifier.smtp ? 'smtp' : 'filesystem';
+        const smtp = notifier.smtp || {};
+        res.json({
+            type,
+            smtp: {
+                host: smtp.address ? smtp.address.replace(/^(tcp|smtp|smtps):\/\//, '').replace(/:\d+$/, '') : '',
+                port: smtp.address ? parseInt(smtp.address.replace(/.*:/, '')) || 587 : 587,
+                sender: smtp.sender || '',
+                username: smtp.username || '',
+                password: smtp.password ? '********' : '',
+                tls_skip_verify: !!(smtp.tls && smtp.tls.skip_verify)
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Ошибка чтения конфигурации: ' + error.message });
+    }
+});
+
+// API: Обновление настроек notifier Authelia (filesystem ↔ smtp)
+// Используем string-замену блока notifier, чтобы не ломать multiline YAML (OIDC private key)
+app.put('/api/authelia/notifier', requireSessionAuth, (req, res) => {
+    try {
+        const { type, smtp } = req.body;
+        if (!type || !['filesystem', 'smtp'].includes(type)) {
+            return res.status(400).json({ error: 'Тип должен быть filesystem или smtp' });
+        }
+        if (type === 'smtp') {
+            if (!smtp || !smtp.host || !smtp.sender) {
+                return res.status(400).json({ error: 'Для SMTP нужны host и sender' });
+            }
+        }
+        if (!fs.existsSync(AUTHELIA_CONFIG_FILE)) {
+            return res.status(404).json({ error: 'Конфигурация Authelia не найдена' });
+        }
+        const content = fs.readFileSync(AUTHELIA_CONFIG_FILE, 'utf8');
+        // Построить новый блок notifier
+        let newBlock;
+        if (type === 'filesystem') {
+            newBlock = [
+                'notifier:',
+                '  filesystem:',
+                '    filename: /var/lib/authelia/notifications.txt'
+            ].join('\n');
+        } else {
+            const port = smtp.port || 25;
+            const lines = [
+                'notifier:',
+                '  disable_startup_check: true',
+                '  smtp:',
+                `    address: smtp://${smtp.host}:${port}`,
+                `    sender: ${smtp.sender}`,
+                '    subject: "[Authelia] {title}"',
+                '    disable_require_tls: true'
+            ];
+            if (smtp.username) {
+                lines.push(`    username: ${smtp.username}`);
+                if (smtp.password && smtp.password !== '********') {
+                    lines.push(`    password: ${smtp.password}`);
+                } else {
+                    // Сохранить старый пароль из текущего конфига
+                    const parsed = yaml.parse(content);
+                    const oldPass = parsed.notifier && parsed.notifier.smtp && parsed.notifier.smtp.password;
+                    if (oldPass) lines.push(`    password: ${oldPass}`);
+                }
+            }
+            if (smtp.tls_skip_verify) {
+                lines.push('    tls:');
+                lines.push('      skip_verify: true');
+            }
+            newBlock = lines.join('\n');
+        }
+        // Заменить блок notifier: ... до следующей top-level секции
+        const replaced = content.replace(
+            /^notifier:\n(?:[ \t]+.*\n)*/m,
+            newBlock + '\n'
+        );
+        if (replaced === content && !content.includes('notifier:')) {
+            return res.status(500).json({ error: 'Блок notifier не найден в конфигурации' });
+        }
+        fs.copyFileSync(AUTHELIA_CONFIG_FILE, AUTHELIA_CONFIG_FILE + '.backup');
+        fs.writeFileSync(AUTHELIA_CONFIG_FILE, replaced, 'utf8');
+        try { execSync(`chown authelia:authelia "${AUTHELIA_CONFIG_FILE}" && chmod 600 "${AUTHELIA_CONFIG_FILE}"`, { stdio: 'pipe' }); } catch(e) {}
+        restartAuthelia();
+        res.json({ success: true, message: `Notifier переключён на ${type}. Authelia перезапущена.` });
+    } catch (error) {
+        res.status(500).json({ error: 'Ошибка обновления конфигурации: ' + error.message });
+    }
+});
+
 // Страница пользователей Authelia
 app.get('/users.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'users.html'));
+});
+
+// ForwardAuth endpoint для Mailu: маппинг Remote-User → Remote-Email (почтовый ящик)
+// Вызывается Traefik как ForwardAuth middleware (без session auth — приходит от Traefik, не от браузера)
+app.get('/api/mailu/auth', (req, res) => {
+    const remoteUser = req.headers['remote-user'];
+    if (!remoteUser) {
+        return res.status(401).end();
+    }
+    const mailbox = getUserMailbox(remoteUser);
+    res.set('Remote-Email', mailbox);
+    res.status(200).end();
 });
 
 // API: Получение списка сервисов
@@ -1525,6 +1730,110 @@ window.location.replace("/");
     } catch (error) {
         console.error('Umami SSO bridge ошибка:', error.message);
         res.status(500).send('SSO вход не удался: ' + error.message);
+    }
+});
+
+// ============================================================
+// RU Proxy — управление российским reverse proxy (Caddy)
+// ============================================================
+
+function getRuProxyConfig() {
+    return {
+        url: (installConfig.ru_proxy_api_url || '').replace(/\/+$/, ''),
+        token: installConfig.ru_proxy_api_token || ''
+    };
+}
+
+async function ruProxyApi(method, apiPath, data) {
+    const cfg = getRuProxyConfig();
+    if (!cfg.url || !cfg.token) {
+        throw new Error('RU Proxy не настроен (ru_proxy_api_url, ru_proxy_api_token в install-config.json)');
+    }
+    const opts = {
+        method,
+        url: `${cfg.url}${apiPath}`,
+        headers: { 'Authorization': `Bearer ${cfg.token}` },
+        timeout: 10000
+    };
+    if (data) opts.data = data;
+    const resp = await axios(opts);
+    return resp.data;
+}
+
+app.get('/ru-proxy.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'ru-proxy.html'));
+});
+
+// GET /api/ru-proxy/status — статус RU Proxy (Caddy + API)
+app.get('/api/ru-proxy/status', requireAuth, async (req, res) => {
+    const cfg = getRuProxyConfig();
+    if (!cfg.url) return res.json({ configured: false });
+    try {
+        const data = await ruProxyApi('get', '/api/health');
+        res.json({ configured: true, reachable: true, ...data });
+    } catch (error) {
+        res.json({ configured: true, reachable: false, error: error.message });
+    }
+});
+
+// GET /api/ru-proxy/domains — список проксируемых доменов
+app.get('/api/ru-proxy/domains', requireAuth, async (req, res) => {
+    try {
+        const data = await ruProxyApi('get', '/api/domains');
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/ru-proxy/domains — добавить домен
+app.post('/api/ru-proxy/domains', requireAuth, async (req, res) => {
+    try {
+        const { domain, backend } = req.body;
+        if (!domain) return res.status(400).json({ error: 'Домен обязателен' });
+        const data = await ruProxyApi('post', '/api/domains', {
+            domain: sanitizeString(domain),
+            backend: backend ? sanitizeString(backend) : undefined
+        });
+        res.json(data);
+    } catch (error) {
+        const status = error.response?.status || 500;
+        const msg = error.response?.data?.error || error.message;
+        res.status(status).json({ error: msg });
+    }
+});
+
+// PUT /api/ru-proxy/domains/:domain — обновить домен (enable/disable, backend)
+app.put('/api/ru-proxy/domains/:domain', requireAuth, async (req, res) => {
+    try {
+        const data = await ruProxyApi('put', `/api/domains/${encodeURIComponent(req.params.domain)}`, req.body);
+        res.json(data);
+    } catch (error) {
+        const status = error.response?.status || 500;
+        const msg = error.response?.data?.error || error.message;
+        res.status(status).json({ error: msg });
+    }
+});
+
+// DELETE /api/ru-proxy/domains/:domain — удалить домен
+app.delete('/api/ru-proxy/domains/:domain', requireAuth, async (req, res) => {
+    try {
+        const data = await ruProxyApi('delete', `/api/domains/${encodeURIComponent(req.params.domain)}`);
+        res.json(data);
+    } catch (error) {
+        const status = error.response?.status || 500;
+        const msg = error.response?.data?.error || error.message;
+        res.status(status).json({ error: msg });
+    }
+});
+
+// POST /api/ru-proxy/reload — принудительная перезагрузка Caddy
+app.post('/api/ru-proxy/reload', requireAuth, async (req, res) => {
+    try {
+        const data = await ruProxyApi('post', '/api/reload');
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 

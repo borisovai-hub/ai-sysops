@@ -585,9 +585,17 @@ if [ "$USE_BASE_DOMAINS" = true ] && { [ "$FORCE_MODE" = true ] || [ ! -f "$MAIL
         [ -z "$MAILU_HOST_RULE" ] && MAILU_HOST_RULE="Host(\`${MAIL_DOMAIN_FOR_MAILU}\`)"
         echo "[5a/6] Создание конфигурации Mailu (mailu.yml отсутствовал)..."
         MAILU_AUTHELIA_MW=""
+        MAILU_AUTH_MW_DEF=""
         if [ "$AUTHELIA_INSTALLED" = true ]; then
             MAILU_AUTHELIA_MW="
-        - authelia@file"
+        - authelia@file
+        - mailu-auth"
+            MAILU_AUTH_MW_DEF="
+    mailu-auth:
+      forwardAuth:
+        address: \"http://127.0.0.1:3000/api/mailu/auth\"
+        authResponseHeaders:
+          - \"Remote-Email\""
         fi
         cat > "$MAILU_YML" << MAILUEOF
 http:
@@ -609,28 +617,40 @@ http:
       compress:
         excludedContentTypes:
           - "text/event-stream"
-
+${MAILU_AUTH_MW_DEF}
   routers:
     mailu-admin:
       rule: "(${MAILU_HOST_RULE}) && PathPrefix(\`/admin\`)"
       service: mailu-front
       entryPoints:
         - websecure
-      middlewares:
+      middlewares:${MAILU_AUTHELIA_MW}
         - mailu-headers
-        - mailu-compress${MAILU_AUTHELIA_MW}
+        - mailu-compress
       tls:
         certResolver: letsencrypt
       priority: 10
 
+    mailu-sso:
+      rule: "(${MAILU_HOST_RULE}) && PathPrefix(\`/sso\`)"
+      service: mailu-front
+      entryPoints:
+        - websecure
+      middlewares:${MAILU_AUTHELIA_MW}
+        - mailu-headers
+        - mailu-compress
+      tls:
+        certResolver: letsencrypt
+      priority: 8
+
     mailu-webmail:
-      rule: "(${MAILU_HOST_RULE}) && (Path(\`/\`) || PathPrefix(\`/webmail\`) || PathPrefix(\`/sso\`))"
+      rule: "(${MAILU_HOST_RULE}) && (Path(\`/\`) || PathPrefix(\`/webmail\`))"
       service: mailu-front
       entryPoints:
         - websecure
       middlewares:
         - mailu-headers
-        - mailu-compress${MAILU_AUTHELIA_MW}
+        - mailu-compress
       tls:
         certResolver: letsencrypt
       priority: 5
@@ -642,7 +662,7 @@ http:
         - websecure
       middlewares:
         - mailu-headers
-        - mailu-compress${MAILU_AUTHELIA_MW}
+        - mailu-compress
       tls:
         certResolver: letsencrypt
       priority: 1

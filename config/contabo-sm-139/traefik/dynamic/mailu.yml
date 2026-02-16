@@ -18,6 +18,12 @@ http:
         excludedContentTypes:
           - "text/event-stream"
 
+    mailu-auth:
+      forwardAuth:
+        address: "http://127.0.0.1:3000/api/mailu/auth"
+        authResponseHeaders:
+          - "Remote-Email"
+
   routers:
     mailu-admin:
       rule: "(Host(`mail.dev.borisovai.ru`) || Host(`mail.dev.borisovai.tech`)) && PathPrefix(`/admin`)"
@@ -26,19 +32,33 @@ http:
         - websecure
       middlewares:
         - authelia@file
+        - mailu-auth
         - mailu-headers
         - mailu-compress
       tls:
         certResolver: letsencrypt
       priority: 10
 
-    mailu-webmail:
-      rule: "(Host(`mail.dev.borisovai.ru`) || Host(`mail.dev.borisovai.tech`)) && (Path(`/`) || PathPrefix(`/webmail`) || PathPrefix(`/sso`))"
+    mailu-sso:
+      rule: "(Host(`mail.dev.borisovai.ru`) || Host(`mail.dev.borisovai.tech`)) && PathPrefix(`/sso`)"
       service: mailu-front
       entryPoints:
         - websecure
       middlewares:
         - authelia@file
+        - mailu-auth
+        - mailu-headers
+        - mailu-compress
+      tls:
+        certResolver: letsencrypt
+      priority: 8
+
+    mailu-webmail:
+      rule: "(Host(`mail.dev.borisovai.ru`) || Host(`mail.dev.borisovai.tech`)) && (Path(`/`) || PathPrefix(`/webmail`))"
+      service: mailu-front
+      entryPoints:
+        - websecure
+      middlewares:
         - mailu-headers
         - mailu-compress
       tls:
