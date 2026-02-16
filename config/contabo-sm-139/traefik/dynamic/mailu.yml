@@ -25,22 +25,22 @@ http:
       entryPoints:
         - websecure
       middlewares:
+        - authelia@file
         - mailu-headers
         - mailu-compress
-
       tls:
         certResolver: letsencrypt
       priority: 10
 
     mailu-webmail:
-      rule: "(Host(`mail.dev.borisovai.ru`) || Host(`mail.dev.borisovai.tech`)) && (Path(`/`) || PathPrefix(`/webmail`))"
+      rule: "(Host(`mail.dev.borisovai.ru`) || Host(`mail.dev.borisovai.tech`)) && (Path(`/`) || PathPrefix(`/webmail`) || PathPrefix(`/sso`))"
       service: mailu-front
       entryPoints:
         - websecure
       middlewares:
+        - authelia@file
         - mailu-headers
         - mailu-compress
-
       tls:
         certResolver: letsencrypt
       priority: 5
@@ -53,7 +53,6 @@ http:
       middlewares:
         - mailu-headers
         - mailu-compress
-
       tls:
         certResolver: letsencrypt
       priority: 1

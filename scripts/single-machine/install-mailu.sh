@@ -308,6 +308,35 @@ if [ ! -f "$MAILU_DIR/docker-compose.yml" ] || [ ! -f "$MAILU_DIR/mailu.env" ]; 
     fi
 fi
 
+# Добавление PROXY_AUTH переменных для SSO через Authelia (если Authelia установлена)
+MAILU_ENV="$MAILU_DIR/mailu.env"
+if [ -f "$MAILU_ENV" ] && { systemctl is-active --quiet authelia 2>/dev/null || [ -f "/etc/authelia/configuration.yml" ]; }; then
+    if ! grep -q "PROXY_AUTH_WHITELIST" "$MAILU_ENV"; then
+        AUTH_PREFIX_CFG=""
+        if type get_config_value &>/dev/null; then
+            AUTH_PREFIX_CFG=$(get_config_value "auth_prefix")
+        fi
+        [ -z "$AUTH_PREFIX_CFG" ] && AUTH_PREFIX_CFG="auth"
+        AUTH_DOMAIN=""
+        if type get_base_domains &>/dev/null; then
+            AUTH_DOMAIN="${AUTH_PREFIX_CFG}.$(get_base_domains | head -1)"
+        fi
+        [ -z "$AUTH_DOMAIN" ] && AUTH_DOMAIN="auth.borisovai.ru"
+
+        cat >> "$MAILU_ENV" << EOF
+
+# Proxy authentication (SSO через Authelia)
+PROXY_AUTH_WHITELIST=127.0.0.1/32
+PROXY_AUTH_HEADER=Remote-Email
+PROXY_AUTH_CREATE=false
+PROXY_AUTH_LOGOUT_URL=https://${AUTH_DOMAIN}/logout
+EOF
+        echo "  [OK] Добавлены PROXY_AUTH переменные для SSO через Authelia"
+    else
+        echo "  [Пропуск] PROXY_AUTH уже настроен в mailu.env"
+    fi
+fi
+
 mkdir -p "$MAILU_DIR"/{data,dkim,certs,redis,filter,mail,mailqueue,webmail,dav}
 mkdir -p "$MAILU_DIR/overrides"/{nginx,dovecot,postfix,rspamd,roundcube}
 

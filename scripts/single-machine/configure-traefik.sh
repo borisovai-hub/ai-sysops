@@ -624,7 +624,7 @@ http:
       priority: 10
 
     mailu-webmail:
-      rule: "(${MAILU_HOST_RULE}) && (Path(\`/\`) || PathPrefix(\`/webmail\`))"
+      rule: "(${MAILU_HOST_RULE}) && (Path(\`/\`) || PathPrefix(\`/webmail\`) || PathPrefix(\`/sso\`))"
       service: mailu-front
       entryPoints:
         - websecure

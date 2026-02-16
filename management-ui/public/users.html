@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление пользователями</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background: #2980b9;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .btn-success {
+            background: #27ae60;
+        }
+
+        .btn-success:hover {
+            background: #229954;
+        }
+
+        .btn-warning {
+            background: #f39c12;
+        }
+
+        .btn-warning:hover {
+            background: #e67e22;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 13px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background: white;
+            margin: 50px auto;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 500px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .close {
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #999;
+        }
+
+        .close:hover {
+            color: #333;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #eaf2f8;
+            color: #2980b9;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin: 1px 2px;
+        }
+
+        .status-active {
+            color: #27ae60;
+            font-weight: 500;
+        }
+
+        .status-disabled {
+            color: #e74c3c;
+            font-weight: 500;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-top">
+                <div>
+                    <h1>Управление пользователями</h1>
+                    <p>Пользователи Authelia SSO</p>
+                </div>
+                <div>
+                    <span id="username-display" style="margin-right: 15px; color: #7f8c8d;"></span>
+                    <button class="btn" onclick="logout()" style="background: #95a5a6;">Выход</button>
+                </div>
+            </div>
+            <nav style="display: flex; gap: 8px; margin-top: 15px; border-top: 1px solid #eee; padding-top: 12px; flex-wrap: wrap;">
+                <a href="/" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Сервисы</a>
+                <a href="/dns.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">DNS</a>
+                <a href="/projects.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Проекты</a>
+                <a href="/tunnels.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Туннели</a>
+                <a href="/files.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Файлы</a>
+                <a href="/users.html" style="font-weight: 600; color: white; background: #3498db; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Пользователи</a>
+                <a href="/tokens.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Токены</a>
+            </nav>
+        </header>
+
+        <div id="alert-container"></div>
+
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>Пользователи Authelia</h2>
+                <button class="btn btn-success" onclick="openCreateModal()">+ Создать пользователя</button>
+            </div>
+
+            <table id="users-table">
+                <thead>
+                    <tr>
+                        <th>Имя</th>
+                        <th>Отображаемое имя</th>
+                        <th>Email</th>
+                        <th>Группы</th>
+                        <th>Статус</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="users-tbody">
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 20px;">
+                            Загрузка...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Модал создания пользователя -->
+    <div id="createModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('createModal')">&times;</span>
+            <h2>Создать пользователя</h2>
+            <form id="create-form" onsubmit="createUser(event)">
+                <div class="form-group">
+                    <label>Имя пользователя:</label>
+                    <input type="text" id="create-username" required placeholder="user1" pattern="[a-zA-Z0-9._-]+" title="Буквы, цифры, точка, дефис, подчёркивание">
+                </div>
+                <div class="form-group">
+                    <label>Отображаемое имя:</label>
+                    <input type="text" id="create-displayname" placeholder="Иван Петров">
+                </div>
+                <div class="form-group">
+                    <label>Email:</label>
+                    <input type="email" id="create-email" placeholder="user@example.com">
+                </div>
+                <div class="form-group">
+                    <label>Пароль (мин. 8 символов):</label>
+                    <input type="password" id="create-password" required minlength="8">
+                </div>
+                <div class="form-group">
+                    <label>Группы (через запятую):</label>
+                    <input type="text" id="create-groups" placeholder="admins, users">
+                </div>
+                <div style="margin-top: 20px;">
+                    <button type="submit" class="btn btn-success">Создать</button>
+                    <button type="button" class="btn" onclick="closeModal('createModal')" style="margin-left: 10px;">Отмена</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Модал редактирования пользователя -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('editModal')">&times;</span>
+            <h2>Редактировать пользователя</h2>
+            <form id="edit-form" onsubmit="updateUser(event)">
+                <div class="form-group">
+                    <label>Имя пользователя:</label>
+                    <input type="text" id="edit-username" readonly style="background: #f0f0f0;">
+                </div>
+                <div class="form-group">
+                    <label>Отображаемое имя:</label>
+                    <input type="text" id="edit-displayname">
+                </div>
+                <div class="form-group">
+                    <label>Email:</label>
+                    <input type="email" id="edit-email">
+                </div>
+                <div class="form-group">
+                    <label>Группы (через запятую):</label>
+                    <input type="text" id="edit-groups">
+                </div>
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="edit-disabled">
+                        <label for="edit-disabled" style="margin-bottom: 0;">Отключён</label>
+                    </div>
+                </div>
+                <div style="margin-top: 20px;">
+                    <button type="submit" class="btn">Сохранить</button>
+                    <button type="button" class="btn" onclick="closeModal('editModal')" style="margin-left: 10px; background: #95a5a6;">Отмена</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Модал смены пароля -->
+    <div id="passwordModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('passwordModal')">&times;</span>
+            <h2>Сменить пароль</h2>
+            <form id="password-form" onsubmit="changePassword(event)">
+                <input type="hidden" id="password-username">
+                <div class="form-group">
+                    <label>Пользователь:</label>
+                    <input type="text" id="password-username-display" readonly style="background: #f0f0f0;">
+                </div>
+                <div class="form-group">
+                    <label>Новый пароль (мин. 8 символов):</label>
+                    <input type="password" id="new-password" required minlength="8">
+                </div>
+                <div class="form-group">
+                    <label>Подтверждение пароля:</label>
+                    <input type="password" id="confirm-password" required minlength="8">
+                </div>
+                <div style="margin-top: 20px;">
+                    <button type="submit" class="btn btn-warning">Сменить пароль</button>
+                    <button type="button" class="btn" onclick="closeModal('passwordModal')" style="margin-left: 10px; background: #95a5a6;">Отмена</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let usersData = [];
+
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/auth/check');
+                const data = await response.json();
+                if (!data.authenticated) return false;
+                if (data.username) {
+                    document.getElementById('username-display').textContent = data.username;
+                }
+                return true;
+            } catch (error) {
+                return false;
+            }
+        }
+
+        async function logout() {
+            try {
+                const res = await fetch('/logout', { method: 'POST' });
+                const data = await res.json();
+                if (data.redirect) window.location.href = data.redirect;
+            } catch (error) {
+                window.location.href = '/';
+            }
+        }
+
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/authelia/users');
+                const data = await response.json();
+                usersData = data.users || [];
+                displayUsers(usersData);
+            } catch (error) {
+                showAlert('Ошибка загрузки пользователей: ' + error.message, 'error');
+            }
+        }
+
+        function displayUsers(users) {
+            const tbody = document.getElementById('users-tbody');
+            if (users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">Нет пользователей</td></tr>';
+                return;
+            }
+            tbody.innerHTML = users.map(u => `
+                <tr>
+                    <td><strong>${escapeHtml(u.username)}</strong></td>
+                    <td>${escapeHtml(u.displayname)}</td>
+                    <td>${escapeHtml(u.email)}</td>
+                    <td>${(u.groups || []).map(g => `<span class="badge">${escapeHtml(g)}</span>`).join(' ')}</td>
+                    <td>
+                        <span class="${u.disabled ? 'status-disabled' : 'status-active'}">${u.disabled ? 'Отключён' : 'Активен'}</span>
+                    </td>
+                    <td style="white-space: nowrap;">
+                        <button class="btn btn-sm" onclick="openEditModal('${escapeHtml(u.username)}')">Изменить</button>
+                        <button class="btn btn-warning btn-sm" onclick="openPasswordModal('${escapeHtml(u.username)}')">Пароль</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteUser('${escapeHtml(u.username)}')">Удалить</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function parseGroups(str) {
+            return str.split(',').map(s => s.trim()).filter(Boolean);
+        }
+
+        // Создание пользователя
+        async function createUser(event) {
+            event.preventDefault();
+            const username = document.getElementById('create-username').value.trim();
+            const displayname = document.getElementById('create-displayname').value.trim();
+            const email = document.getElementById('create-email').value.trim();
+            const password = document.getElementById('create-password').value;
+            const groups = parseGroups(document.getElementById('create-groups').value);
+
+            try {
+                const response = await fetch('/api/authelia/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, displayname, email, password, groups })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    closeModal('createModal');
+                    showAlert(result.message, 'success');
+                    showAlert('Authelia перезапущена. Сервисы могут быть кратковременно недоступны.', 'warning');
+                    loadUsers();
+                } else {
+                    showAlert(result.error || 'Ошибка создания', 'error');
+                }
+            } catch (error) {
+                showAlert('Ошибка: ' + error.message, 'error');
+            }
+        }
+
+        // Открыть модал редактирования
+        function openEditModal(username) {
+            const user = usersData.find(u => u.username === username);
+            if (!user) return;
+            document.getElementById('edit-username').value = user.username;
+            document.getElementById('edit-displayname').value = user.displayname || '';
+            document.getElementById('edit-email').value = user.email || '';
+            document.getElementById('edit-groups').value = (user.groups || []).join(', ');
+            document.getElementById('edit-disabled').checked = !!user.disabled;
+            document.getElementById('editModal').style.display = 'block';
+        }
+
+        // Обновление пользователя
+        async function updateUser(event) {
+            event.preventDefault();
+            const username = document.getElementById('edit-username').value;
+            const displayname = document.getElementById('edit-displayname').value.trim();
+            const email = document.getElementById('edit-email').value.trim();
+            const groups = parseGroups(document.getElementById('edit-groups').value);
+            const disabled = document.getElementById('edit-disabled').checked;
+
+            try {
+                const response = await fetch(`/api/authelia/users/${encodeURIComponent(username)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ displayname, email, groups, disabled })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    closeModal('editModal');
+                    showAlert(result.message, 'success');
+                    loadUsers();
+                } else {
+                    showAlert(result.error || 'Ошибка обновления', 'error');
+                }
+            } catch (error) {
+                showAlert('Ошибка: ' + error.message, 'error');
+            }
+        }
+
+        // Открыть модал смены пароля
+        function openPasswordModal(username) {
+            document.getElementById('password-username').value = username;
+            document.getElementById('password-username-display').value = username;
+            document.getElementById('new-password').value = '';
+            document.getElementById('confirm-password').value = '';
+            document.getElementById('passwordModal').style.display = 'block';
+        }
+
+        // Смена пароля
+        async function changePassword(event) {
+            event.preventDefault();
+            const username = document.getElementById('password-username').value;
+            const password = document.getElementById('new-password').value;
+            const confirm = document.getElementById('confirm-password').value;
+
+            if (password !== confirm) {
+                showAlert('Пароли не совпадают', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/authelia/users/${encodeURIComponent(username)}/password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    closeModal('passwordModal');
+                    showAlert(result.message, 'success');
+                } else {
+                    showAlert(result.error || 'Ошибка смены пароля', 'error');
+                }
+            } catch (error) {
+                showAlert('Ошибка: ' + error.message, 'error');
+            }
+        }
+
+        // Удаление пользователя
+        async function deleteUser(username) {
+            if (!confirm(`Удалить пользователя "${username}"? Это действие необратимо.`)) return;
+            try {
+                const response = await fetch(`/api/authelia/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
+                const result = await response.json();
+                if (response.ok) {
+                    showAlert(result.message, 'success');
+                    loadUsers();
+                } else {
+                    showAlert(result.error || 'Ошибка удаления', 'error');
+                }
+            } catch (error) {
+                showAlert('Ошибка: ' + error.message, 'error');
+            }
+        }
+
+        function openCreateModal() {
+            document.getElementById('create-form').reset();
+            document.getElementById('createModal').style.display = 'block';
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).style.display = 'none';
+        }
+
+        function showAlert(message, type) {
+            const container = document.getElementById('alert-container');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            container.appendChild(alert);
+            setTimeout(() => { alert.remove(); }, 5000);
+        }
+
+        window.onclick = function(event) {
+            ['createModal', 'editModal', 'passwordModal'].forEach(id => {
+                if (event.target === document.getElementById(id)) closeModal(id);
+            });
+        }
+
+        checkAuth().then(authenticated => {
+            if (authenticated) loadUsers();
+        });
+    </script>
+</body>
+</html>

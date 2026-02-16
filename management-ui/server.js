@@ -4,7 +4,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const axios = require('axios');
 const yaml = require('yaml');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const crypto = require('crypto');
 const multer = require('multer');
 
@@ -17,6 +17,8 @@ const DNS_CONFIG_FILE = '/etc/dns-api/config.json';
 const PROJECTS_FILE = '/etc/management-ui/projects.json';
 const TEMPLATES_DIR = path.join(__dirname, 'templates');
 const INSTALL_CONFIG_FILE = '/etc/install-config.json';
+const AUTHELIA_USERS_DB = '/etc/authelia/users_database.yml';
+const AUTHELIA_BINARY = '/usr/local/bin/authelia';
 
 // Загрузка конфигурации
 let config = {};
@@ -555,6 +557,198 @@ app.delete('/api/auth/tokens/:id', requireSessionAuth, (req, res) => {
 // Страница токенов (авторизация на уровне Traefik/Authelia)
 app.get('/tokens.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'tokens.html'));
+});
+
+// ==================== Управление пользователями Authelia ====================
+
+// Чтение users_database.yml
+function readAutheliaUsers() {
+    if (!fs.existsSync(AUTHELIA_USERS_DB)) return {};
+    const content = fs.readFileSync(AUTHELIA_USERS_DB, 'utf8');
+    const data = yaml.parse(content);
+    return (data && data.users) || {};
+}
+
+// Запись users_database.yml с backup и правами
+function writeAutheliaUsers(users) {
+    if (fs.existsSync(AUTHELIA_USERS_DB)) {
+        fs.copyFileSync(AUTHELIA_USERS_DB, AUTHELIA_USERS_DB + '.backup');
+    }
+    const data = { users };
+    fs.writeFileSync(AUTHELIA_USERS_DB, yaml.stringify(data), 'utf8');
+    try {
+        execSync(`chown authelia:authelia "${AUTHELIA_USERS_DB}" && chmod 600 "${AUTHELIA_USERS_DB}"`, { stdio: 'pipe' });
+    } catch (e) {
+        console.warn('Не удалось установить права на users_database.yml:', e.message);
+    }
+}
+
+// Хеширование пароля через authelia binary (безопасно, без shell)
+function hashAutheliaPassword(password) {
+    const output = execFileSync(AUTHELIA_BINARY,
+        ['crypto', 'hash', 'generate', 'argon2', '--password', password],
+        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+    ).trim();
+    return output.replace(/^Digest:\s*/, '');
+}
+
+// Перезапуск Authelia
+function restartAuthelia() {
+    try {
+        execSync('systemctl restart authelia', { stdio: 'pipe' });
+    } catch (error) {
+        console.warn('Ошибка перезапуска Authelia:', error.message);
+    }
+}
+
+// Валидация username
+function isValidAutheliaUsername(name) {
+    if (!name || typeof name !== 'string') return false;
+    return /^[a-zA-Z0-9._-]{1,64}$/.test(name);
+}
+
+// API: Список пользователей Authelia
+app.get('/api/authelia/users', requireSessionAuth, (req, res) => {
+    try {
+        const users = readAutheliaUsers();
+        const result = Object.entries(users).map(([username, data]) => ({
+            username,
+            displayname: data.displayname || '',
+            email: data.email || '',
+            groups: data.groups || [],
+            disabled: !!data.disabled
+        }));
+        res.json({ users: result });
+    } catch (error) {
+        res.status(500).json({ error: 'Ошибка чтения пользователей: ' + error.message });
+    }
+});
+
+// API: Создание пользователя Authelia
+app.post('/api/authelia/users', requireSessionAuth, (req, res) => {
+    try {
+        const username = sanitizeString(req.body.username);
+        const password = req.body.password;
+        const displayname = sanitizeString(req.body.displayname) || username;
+        const email = sanitizeString(req.body.email) || '';
+        const groups = Array.isArray(req.body.groups) ? req.body.groups.map(sanitizeString).filter(Boolean) : [];
+
+        if (!isValidAutheliaUsername(username)) {
+            return res.status(400).json({ error: 'Недопустимое имя пользователя (a-z, 0-9, ._- до 64 символов)' });
+        }
+        if (!password || password.length < 8) {
+            return res.status(400).json({ error: 'Пароль должен быть не менее 8 символов' });
+        }
+
+        const users = readAutheliaUsers();
+        if (users[username]) {
+            return res.status(409).json({ error: `Пользователь "${username}" уже существует` });
+        }
+
+        users[username] = {
+            disabled: false,
+            displayname,
+            email,
+            password: hashAutheliaPassword(password),
+            groups
+        };
+
+        writeAutheliaUsers(users);
+        restartAuthelia();
+        res.json({ success: true, message: `Пользователь "${username}" создан` });
+    } catch (error) {
+        res.status(500).json({ error: 'Ошибка создания пользователя: ' + error.message });
+    }
+});
+
+// API: Обновление пользователя Authelia
+app.put('/api/authelia/users/:username', requireSessionAuth, (req, res) => {
+    try {
+        const username = req.params.username;
+        const users = readAutheliaUsers();
+
+        if (!users[username]) {
+            return res.status(404).json({ error: `Пользователь "${username}" не найден` });
+        }
+
+        if (req.body.displayname !== undefined) {
+            users[username].displayname = sanitizeString(req.body.displayname);
+        }
+        if (req.body.email !== undefined) {
+            users[username].email = sanitizeString(req.body.email);
+        }
+        if (req.body.groups !== undefined) {
+            users[username].groups = Array.isArray(req.body.groups)
+                ? req.body.groups.map(sanitizeString).filter(Boolean) : [];
+        }
+        if (req.body.disabled !== undefined) {
+            users[username].disabled = !!req.body.disabled;
+        }
+
+        writeAutheliaUsers(users);
+        restartAuthelia();
+        res.json({ success: true, message: `Пользователь "${username}" обновлён` });
+    } catch (error) {
+        res.status(500).json({ error: 'Ошибка обновления пользователя: ' + error.message });
+    }
+});
+
+// API: Смена пароля пользователя Authelia
+app.post('/api/authelia/users/:username/password', requireSessionAuth, (req, res) => {
+    try {
+        const username = req.params.username;
+        const password = req.body.password;
+
+        if (!password || password.length < 8) {
+            return res.status(400).json({ error: 'Пароль должен быть не менее 8 символов' });
+        }
+
+        const users = readAutheliaUsers();
+        if (!users[username]) {
+            return res.status(404).json({ error: `Пользователь "${username}" не найден` });
+        }
+
+        users[username].password = hashAutheliaPassword(password);
+        writeAutheliaUsers(users);
+        restartAuthelia();
+        res.json({ success: true, message: `Пароль пользователя "${username}" изменён` });
+    } catch (error) {
+        res.status(500).json({ error: 'Ошибка смены пароля: ' + error.message });
+    }
+});
+
+// API: Удаление пользователя Authelia
+app.delete('/api/authelia/users/:username', requireSessionAuth, (req, res) => {
+    try {
+        const username = req.params.username;
+        const users = readAutheliaUsers();
+
+        if (!users[username]) {
+            return res.status(404).json({ error: `Пользователь "${username}" не найден` });
+        }
+
+        const isAdmin = (users[username].groups || []).includes('admins');
+        if (isAdmin) {
+            const otherAdmins = Object.entries(users).filter(
+                ([u, d]) => u !== username && (d.groups || []).includes('admins') && !d.disabled
+            );
+            if (otherAdmins.length === 0) {
+                return res.status(400).json({ error: 'Нельзя удалить последнего активного администратора' });
+            }
+        }
+
+        delete users[username];
+        writeAutheliaUsers(users);
+        restartAuthelia();
+        res.json({ success: true, message: `Пользователь "${username}" удалён` });
+    } catch (error) {
+        res.status(500).json({ error: 'Ошибка удаления пользователя: ' + error.message });
+    }
+});
+
+// Страница пользователей Authelia
+app.get('/users.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'users.html'));
 });
 
 // API: Получение списка сервисов
