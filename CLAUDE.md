@@ -24,6 +24,16 @@
 - **Все операции** (PUT, DELETE, поиск) должны использовать `findServiceConfig()` — искать роутер внутри YAML, а не только по имени файла
 - **Никогда** не должно быть двух YAML файлов с роутерами на один домен (как `admin.yml` + `management-ui.yml`) — это вызывает конфликт приоритетов
 
+### Traefik: правила Host ВСЕГДА должны включать ОБА домена (.ru и .tech)
+- **Каждый** Traefik роутер ОБЯЗАН содержать правило с обоими базовыми доменами:
+  ```
+  rule: Host(`service.borisovai.tech`) || Host(`service.borisovai.ru`)
+  ```
+- DNS для `.ru` доменов указывает на **RU Proxy** (82.146.56.174), который проксирует трафик на Contabo
+- Если в Traefik-конфиге нет `.ru` домена — RU Proxy получит 404 от Traefik
+- **При добавлении нового сервиса** — добавить оба домена в Traefik + добавить `.ru` домен в RU Proxy через API или UI
+- Конфиги Traefik хранятся в `config/contabo-sm-139/traefik/dynamic/` и доставляются через CI
+
 ### Authelia SSO: чеклист для нового сервиса
 При добавлении нового сервиса за Authelia, обязательно обновить **ВСЕ** точки:
 1. **Traefik роутер** — добавить `middlewares: [authelia@file]`
@@ -156,6 +166,20 @@ Self-hosted веб-аналитика для мониторинга трафик
 - **CI/CD**: Автоматическая установка Docker (`install:docker` job) и Umami (`install:umami` job)
 - **Деплой**: `scripts/ci/deploy-umami.sh` (инкрементальный, обновление образов и конфигов)
 - **Интеграция**: [docs/agents/AGENT_ANALYTICS.md](docs/agents/AGENT_ANALYTICS.md)
+
+### RU Proxy
+
+Российский reverse proxy (Caddy) для .ru доменов — снижение рисков блокировки РКН, улучшение latency для RU пользователей.
+
+- **Архитектура**: Пользователь → RU VPS (Caddy, auto-SSL) → Contabo (Traefik)
+- **RU VPS**: `82.146.56.174` (Ubuntu 24.04)
+- **Caddy**: reverse proxy с автоматическими Let's Encrypt сертификатами
+- **Management API**: `ru-proxy/server.js` — CRUD доменов, генерация Caddyfile, reload Caddy (порт 3100)
+- **Install скрипт**: `scripts/single-machine/install-ru-proxy.sh` (запускается на RU VPS, не на Contabo)
+- **UI**: `management-ui/public/ru-proxy.html`
+- **API Management UI**: `GET/POST/PUT/DELETE /api/ru-proxy/domains`, `GET /api/ru-proxy/status`, `POST /api/ru-proxy/reload`
+- **Конфиг Contabo**: `install-config.json` → `ru_proxy_api_url`, `ru_proxy_api_token`
+- **Важно**: Caddy использует `tls_insecure_skip_verify` для бэкенда — Traefik на Contabo не имеет LE-сертификатов для .ru (DNS указывает на RU VPS)
 
 ## Установка и обновление
 
