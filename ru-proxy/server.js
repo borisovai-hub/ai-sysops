@@ -90,10 +90,12 @@ function generateCaddyfile(domainsData) {
         lines.push(`        header_up Host {host}`);
         lines.push(`        header_up X-Real-IP {remote_host}`);
 
-        // TLS к бэкенду: SNI = домен, чтобы Traefik маршрутизировал правильно
+        // TLS к бэкенду: SNI = домен + skip verify (Traefik не имеет LE-сертификата
+        // для .ru доменов, т.к. DNS указывает на RU VPS)
         if (backend.startsWith('https://')) {
             lines.push(`        transport http {`);
             lines.push(`            tls_server_name ${entry.domain}`);
+            lines.push(`            tls_insecure_skip_verify`);
             lines.push(`        }`);
         }
 
