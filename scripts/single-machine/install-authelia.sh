@@ -342,7 +342,14 @@ access_control:
     # Mailu
     - domain:${MAIL_DOMAINS}
       policy: two_factor
-    # Umami Analytics
+    # Umami Analytics — публичные трекинг-эндпоинты (скрипт + API сбора данных)
+    - domain:${ANALYTICS_DOMAINS}
+      resources:
+        - '^/script\.js$'
+        - '^/stats$'
+        - '^/api/send$'
+      policy: bypass
+    # Umami Analytics — остальное через 2FA
     - domain:${ANALYTICS_DOMAINS}
       policy: two_factor
     # File Server — публичные файлы без авторизации
