@@ -87,10 +87,8 @@ function generateCaddyfile(domainsData) {
 
         lines.push(`${entry.domain} {`);
         lines.push(`    reverse_proxy ${backend} {`);
-        lines.push(`        header_up Host {upstream_hostport}`);
+        lines.push(`        header_up Host {host}`);
         lines.push(`        header_up X-Real-IP {remote_host}`);
-        lines.push(`        header_up X-Forwarded-For {remote_host}`);
-        lines.push(`        header_up X-Forwarded-Proto {scheme}`);
 
         // TLS к бэкенду: SNI = домен, чтобы Traefik маршрутизировал правильно
         if (backend.startsWith('https://')) {
