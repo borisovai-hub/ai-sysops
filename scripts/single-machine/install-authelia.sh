@@ -174,7 +174,7 @@ else
 fi
 
 # Client secrets (plain text — для передачи в Management UI config и gitlab.rb)
-for client_name in mgmt gitlab; do
+for client_name in mgmt gitlab strapi; do
     SECRET_FILE="/etc/authelia/secrets/${client_name}_client_secret"
     if [ -f "$SECRET_FILE" ] && [ -s "$SECRET_FILE" ]; then
         echo "  [Пропуск] ${client_name}_client_secret уже существует"
@@ -204,8 +204,10 @@ fi
 # Генерация argon2 хешей для client secrets
 MGMT_SECRET=$(cat /etc/authelia/secrets/mgmt_client_secret)
 GITLAB_SECRET=$(cat /etc/authelia/secrets/gitlab_client_secret)
+STRAPI_SECRET=$(cat /etc/authelia/secrets/strapi_client_secret)
 MGMT_HASH=$(authelia crypto hash generate argon2 --password "$MGMT_SECRET" 2>/dev/null || echo '$argon2id$v=19$m=65536,t=3,p=4$placeholder')
 GITLAB_HASH=$(authelia crypto hash generate argon2 --password "$GITLAB_SECRET" 2>/dev/null || echo '$argon2id$v=19$m=65536,t=3,p=4$placeholder')
+STRAPI_HASH=$(authelia crypto hash generate argon2 --password "$STRAPI_SECRET" 2>/dev/null || echo '$argon2id$v=19$m=65536,t=3,p=4$placeholder')
 
 # Читаем RSA ключ (индентируем для YAML)
 OIDC_RSA_KEY=$(sed 's/^/          /' "$OIDC_KEY_FILE")
@@ -261,12 +263,15 @@ done < <(get_base_domains)
 # OIDC redirect URIs
 MGMT_REDIRECTS=""
 GITLAB_REDIRECTS=""
+STRAPI_REDIRECTS=""
 while IFS= read -r base; do
     [ -z "$base" ] && continue
     MGMT_REDIRECTS="${MGMT_REDIRECTS}
           - 'https://admin.${base}/callback'"
     GITLAB_REDIRECTS="${GITLAB_REDIRECTS}
           - 'https://gitlab.dev.${base}/users/auth/openid_connect/callback'"
+    STRAPI_REDIRECTS="${STRAPI_REDIRECTS}
+          - 'https://api.${base}/strapi-plugin-sso/oidc/callback'"
 done < <(get_base_domains)
 
 cat > "$AUTHELIA_CONFIG" << EOF
@@ -388,6 +393,14 @@ ${OIDC_RSA_KEY}
         authorization_policy: two_factor
         redirect_uris:${GITLAB_REDIRECTS}
         scopes: [openid, profile, email, groups]
+        token_endpoint_auth_method: client_secret_post
+      - client_id: 'strapi'
+        client_name: 'Strapi CMS'
+        client_secret: '${STRAPI_HASH}'
+        public: false
+        authorization_policy: two_factor
+        redirect_uris:${STRAPI_REDIRECTS}
+        scopes: [openid, profile, email]
         token_endpoint_auth_method: client_secret_post
 EOF
 
