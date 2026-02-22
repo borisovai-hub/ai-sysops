@@ -80,6 +80,18 @@ install:fileserver:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
+install:gitlab-oidc:
+  stage: install
+  tags:
+    - deploy-root
+  needs: []
+  script:
+    - bash scripts/single-machine/configure-gitlab-oidc.sh
+  when: manual
+  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
 deploy:
   stage: deploy
   tags:
@@ -106,6 +118,9 @@ deploy:
 
     # Деплой файлового сервера (обновление конфигов и образов если установлен)
     - bash scripts/ci/deploy-fileserver.sh
+
+    # Деплой Mailu (обновление PROXY_AUTH если установлен)
+    - bash scripts/ci/deploy-mailu.sh
 
     # Копирование скриптов обслуживания
     - mkdir -p /opt/borisovai-admin/scripts

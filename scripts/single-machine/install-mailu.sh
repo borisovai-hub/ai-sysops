@@ -333,7 +333,7 @@ if [ -f "$MAILU_ENV" ] && { systemctl is-active --quiet authelia 2>/dev/null || 
 # WHITELIST должен включать Docker subnet — Traefik приходит через Docker gateway
 PROXY_AUTH_WHITELIST=${MAILU_SUBNET},127.0.0.1/32
 PROXY_AUTH_HEADER=Remote-Email
-PROXY_AUTH_CREATE=false
+PROXY_AUTH_CREATE=true
 PROXY_AUTH_LOGOUT_URL=https://${AUTH_DOMAIN}/logout
 EOF
         echo "  [OK] Добавлены PROXY_AUTH переменные для SSO через Authelia"
