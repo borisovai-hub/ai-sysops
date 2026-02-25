@@ -1,6 +1,6 @@
 # Шаблон CI/CD для продуктов — сборка артефактов и обновление продуктовой страницы
 # Генерируется оркестратором. Переменные {{RUNNER_TAG}} и {{DEFAULT_BRANCH}} подставляются при генерации.
-# CI Variables: DOWNLOADS_PATH, PROJECT_SLUG, STRAPI_API_URL, STRAPI_API_TOKEN
+# CI Variables: DOWNLOADS_PATH, PROJECT_SLUG, MANAGEMENT_UI_URL, MANAGEMENT_UI_TOKEN
 #
 # Триггер: создание тега вида v* (например v1.0.0)
 
@@ -46,26 +46,26 @@ publish:
       elif [ -d "out" ]; then
         cp -r out/* $DOWNLOADS_PATH/ 2>/dev/null || true
       fi
-    # Обновление записи в Strapi — версия и ссылка на скачивание
+    # Отправка релиза в Management UI (обновляет Strapi как draft)
     - |
-      if [ -n "$STRAPI_API_URL" ] && [ -n "$STRAPI_API_TOKEN" ] && [ -n "$PROJECT_SLUG" ]; then
-        echo "Обновление Strapi: версия $CI_COMMIT_TAG для проекта $PROJECT_SLUG"
-        STRAPI_PROJECT_ID=$(curl -s \
-          -H "Authorization: Bearer $STRAPI_API_TOKEN" \
-          "$STRAPI_API_URL/api/projects?filters[slug][\$eq]=$PROJECT_SLUG" | \
-          python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data'][0]['id'] if d.get('data') else '')" 2>/dev/null)
-        if [ -n "$STRAPI_PROJECT_ID" ] && [ "$STRAPI_PROJECT_ID" != "" ]; then
-          curl -s -X PUT \
-            -H "Authorization: Bearer $STRAPI_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"data\":{\"version\":\"$CI_COMMIT_TAG\",\"downloadUrl\":\"/downloads/$PROJECT_SLUG/\"}}" \
-            "$STRAPI_API_URL/api/projects/$STRAPI_PROJECT_ID"
-          echo "Strapi обновлён: проект #$STRAPI_PROJECT_ID, версия $CI_COMMIT_TAG"
+      if [ -n "$MANAGEMENT_UI_URL" ] && [ -n "$MANAGEMENT_UI_TOKEN" ] && [ -n "$PROJECT_SLUG" ]; then
+        echo "Отправка релиза $CI_COMMIT_TAG в Management UI для проекта $PROJECT_SLUG"
+        HTTP_STATUS=$(curl -s -o /tmp/release_response.json -w "%{http_code}" \
+          -X POST \
+          -H "Authorization: Bearer $MANAGEMENT_UI_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "{\"version\":\"$CI_COMMIT_TAG\",\"downloadUrl\":\"/downloads/$PROJECT_SLUG/\",\"source\":\"ci\"}" \
+          "$MANAGEMENT_UI_URL/api/publish/projects/$PROJECT_SLUG/release")
+        if [ "$HTTP_STATUS" = "200" ]; then
+          echo "Релиз отправлен (draft). Для публикации на сайте — подтвердите в Management UI."
         else
-          echo "Предупреждение: проект $PROJECT_SLUG не найден в Strapi"
+          echo "ОШИБКА: Management UI вернул HTTP $HTTP_STATUS"
+          cat /tmp/release_response.json 2>/dev/null
+          exit 1
         fi
       else
-        echo "Strapi: переменные не заданы, пропуск обновления"
+        echo "ОШИБКА: переменные MANAGEMENT_UI_URL, MANAGEMENT_UI_TOKEN или PROJECT_SLUG не заданы"
+        exit 1
       fi
   rules:
     - if: $CI_COMMIT_TAG =~ /^v/

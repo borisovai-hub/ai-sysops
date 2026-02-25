@@ -1,6 +1,6 @@
 # Шаблон CI/CD для сборки и публикации документации
 # Генерируется оркестратором. Переменные {{RUNNER_TAG}} и {{DEFAULT_BRANCH}} подставляются при генерации.
-# CI Variables: DOCS_DEPLOY_PATH (путь на сервере для публикации документации)
+# CI Variables: DOCS_DEPLOY_PATH, PROJECT_SLUG, MANAGEMENT_UI_URL, MANAGEMENT_UI_TOKEN
 #
 # Поддерживаемые генераторы (определяется автоматически):
 # - VitePress: docs/.vitepress/dist/
@@ -66,6 +66,18 @@ deploy:docs:
       else
         echo "Не найден каталог с собранной документацией"
         exit 1
+      fi
+    # Уведомление Management UI о новой версии документации (draft)
+    - |
+      if [ -n "$MANAGEMENT_UI_URL" ] && [ -n "$MANAGEMENT_UI_TOKEN" ] && [ -n "$PROJECT_SLUG" ]; then
+        DOCS_VERSION=$(date +%Y%m%d-%H%M)
+        curl -sf -X POST \
+          -H "Authorization: Bearer $MANAGEMENT_UI_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "{\"version\":\"$DOCS_VERSION\",\"source\":\"ci\"}" \
+          "$MANAGEMENT_UI_URL/api/publish/projects/$PROJECT_SLUG/release" \
+          && echo "Версия документации $DOCS_VERSION отправлена в Management UI (draft)" \
+          || echo "Предупреждение: не удалось уведомить Management UI"
       fi
   rules:
     - if: $CI_COMMIT_BRANCH == "{{DEFAULT_BRANCH}}"

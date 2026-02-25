@@ -435,16 +435,24 @@ else
         PASSWORD_HASH='$argon2id$v=19$m=65536,t=3,p=4$ЗАМЕНИТЕ_ЭТОТ_ХЕШ'
     fi
 
-    LETSENCRYPT_EMAIL=$(get_config_value "letsencrypt_email")
-    [ -z "$LETSENCRYPT_EMAIL" ] && LETSENCRYPT_EMAIL="admin@${FIRST_BASE}"
+    # Данные пользователя Authelia (отдельно от LE email)
+    AUTHELIA_USERNAME=$(get_config_value "authelia_username")
+    [ -z "$AUTHELIA_USERNAME" ] && AUTHELIA_USERNAME="admin"
+    AUTHELIA_EMAIL=$(get_config_value "authelia_email")
+    if [ -z "$AUTHELIA_EMAIL" ]; then
+        # Фоллбэк: внутренний email из username@first_base
+        AUTHELIA_EMAIL="${AUTHELIA_USERNAME}@${FIRST_BASE}"
+    fi
+    AUTHELIA_DISPLAYNAME=$(get_config_value "authelia_displayname")
+    [ -z "$AUTHELIA_DISPLAYNAME" ] && AUTHELIA_DISPLAYNAME="Admin"
 
     cat > "$USERS_DB" << USERSEOF
 ---
 users:
-  admin:
+  ${AUTHELIA_USERNAME}:
     disabled: false
-    displayname: 'Admin'
-    email: '${LETSENCRYPT_EMAIL}'
+    displayname: '${AUTHELIA_DISPLAYNAME}'
+    email: '${AUTHELIA_EMAIL}'
     password: '${PASSWORD_HASH}'
     groups:
       - admins

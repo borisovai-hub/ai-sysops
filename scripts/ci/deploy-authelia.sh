@@ -84,7 +84,39 @@ else
     echo "  [OK] authelia.yml существует"
 fi
 
-# [2/3] Проверка authelia@file middleware в Traefik конфигах
+# [2/4] Проверка email пользователя в users_database.yml
+USERS_DB="/etc/authelia/users_database.yml"
+if [ -f "$USERS_DB" ]; then
+    # Источники: CI Variables → install-config.json
+    AUTHELIA_USERNAME="${AUTHELIA_USERNAME:-$(get_config_value "authelia_username" 2>/dev/null)}"
+    AUTHELIA_EMAIL="${AUTHELIA_EMAIL:-$(get_config_value "authelia_email" 2>/dev/null)}"
+    if [ -n "$AUTHELIA_EMAIL" ]; then
+        # Сохранить в install-config для будущих переустановок
+        save_config_value "authelia_email" "$AUTHELIA_EMAIL" 2>/dev/null || true
+        [ -n "$AUTHELIA_USERNAME" ] && save_config_value "authelia_username" "$AUTHELIA_USERNAME" 2>/dev/null || true
+
+        CURRENT_EMAIL=$(grep -oP "email:\s*'\K[^']+" "$USERS_DB" 2>/dev/null || true)
+        if [ -n "$CURRENT_EMAIL" ] && [ "$CURRENT_EMAIL" != "$AUTHELIA_EMAIL" ]; then
+            echo "  Обновление email: $CURRENT_EMAIL -> $AUTHELIA_EMAIL"
+            sed -i "s|email: '${CURRENT_EMAIL}'|email: '${AUTHELIA_EMAIL}'|" "$USERS_DB"
+            UPDATED=$((UPDATED + 1))
+        else
+            echo "  [OK] email в users_database.yml актуален ($AUTHELIA_EMAIL)"
+        fi
+    fi
+    # Обновить displayname если указан
+    AUTHELIA_DISPLAYNAME="${AUTHELIA_DISPLAYNAME:-$(get_config_value "authelia_displayname" 2>/dev/null)}"
+    if [ -n "$AUTHELIA_DISPLAYNAME" ]; then
+        CURRENT_DISPLAYNAME=$(grep -oP "displayname:\s*'\K[^']+" "$USERS_DB" 2>/dev/null || true)
+        if [ -n "$CURRENT_DISPLAYNAME" ] && [ "$CURRENT_DISPLAYNAME" != "$AUTHELIA_DISPLAYNAME" ]; then
+            echo "  Обновление displayname: $CURRENT_DISPLAYNAME -> $AUTHELIA_DISPLAYNAME"
+            sed -i "s|displayname: '${CURRENT_DISPLAYNAME}'|displayname: '${AUTHELIA_DISPLAYNAME}'|" "$USERS_DB"
+            UPDATED=$((UPDATED + 1))
+        fi
+    fi
+fi
+
+# [3/4] Проверка authelia@file middleware в Traefik конфигах
 _ensure_authelia_middleware() {
     local yml_file="$1"
     local fname
@@ -118,7 +150,7 @@ elif [ -f "$TRAEFIK_DYN/mailu.yml" ]; then
     echo "  [OK] mailu.yml — authelia@file есть"
 fi
 
-# [3/3] Management UI использует Authelia ForwardAuth (OIDC больше не нужен)
+# [4/4] Management UI использует Authelia ForwardAuth (OIDC больше не нужен)
 MGMT_CONFIG="/etc/management-ui/config.json"
 if [ -f "$MGMT_CONFIG" ] && grep -q '"oidc"' "$MGMT_CONFIG"; then
     echo "  [Инфо] OIDC секция в config.json больше не используется (ForwardAuth через Traefik)"
@@ -136,6 +168,17 @@ if [ "$UPDATED" -eq 0 ]; then
     echo "  Конфигурация без изменений"
 else
     echo "  Обновлено: $UPDATED элемент(ов)"
+    # Перезапуск Authelia при изменениях в конфиге или users_database
+    if systemctl is-active --quiet authelia 2>/dev/null; then
+        echo "  Перезапуск Authelia..."
+        systemctl restart authelia
+        sleep 2
+        if systemctl is-active --quiet authelia; then
+            echo "  [OK] Authelia перезапущена"
+        else
+            echo "  [ОШИБКА] Authelia не запустилась после перезапуска"
+        fi
+    fi
 fi
 
 echo "=== Authelia задеплоена ==="

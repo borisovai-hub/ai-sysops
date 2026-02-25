@@ -280,6 +280,7 @@
                 <a href="/files.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Файлы</a>
                 <a href="/ru-proxy.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">RU Proxy</a>
                 <a href="/users.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Пользователи</a>
+                <a href="/content.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Контент</a>
                 <a href="/tokens.html" style="color: #3498db; background: #eaf2f8; text-decoration: none; padding: 8px 16px; border-radius: 4px;">Токены</a>
             </nav>
         </header>
@@ -471,13 +472,18 @@
 
                 const safeSlug = p.slug.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
+                const statusBadge = p.status === 'partial'
+                    ? ' <span class="badge" style="background:#e67e22;color:#fff;font-size:11px;">Частично</span>'
+                    : '';
+
                 return `<tr>
-                    <td><strong>${slug}</strong></td>
+                    <td><strong>${slug}</strong>${statusBadge}</td>
                     <td><span class="badge ${badgeClass}">${type}</span></td>
                     <td>${domain}</td>
                     <td>${gitlabLink}</td>
                     <td>${stepsHtml}</td>
                     <td>
+                        ${p.status === 'partial' ? `<button class="btn btn-sm" onclick="retryProject('${safeSlug}')" title="Повторить неуспешные шаги" style="background:#e67e22;color:#fff;">Повторить</button> ` : ''}
                         <button class="btn btn-sm" onclick="updateCi('${safeSlug}')" title="Обновить CI">CI</button>
                         <button class="btn btn-sm btn-danger" onclick="deleteProject('${safeSlug}')" style="margin-left: 4px;">Удалить</button>
                     </td>
@@ -556,6 +562,24 @@
         }
 
         // Register project
+        function showRegistrationResult(form, result) {
+            form.style.display = 'none';
+            const resultDiv = document.getElementById('registration-result');
+            resultDiv.style.display = 'block';
+
+            const steps = result.project.steps || {};
+            let logHtml = '';
+            for (const [key, step] of Object.entries(steps)) {
+                if (step.done) {
+                    logHtml += `<div class="step-ok">&#10003; ${escapeHtml(key)}: ${escapeHtml(step.detail || 'OK')}</div>`;
+                } else {
+                    logHtml += `<div class="step-fail">&#10007; ${escapeHtml(key)}: ${escapeHtml(step.error || 'ошибка')}</div>`;
+                }
+            }
+            document.getElementById('steps-log').innerHTML = logHtml || '<div class="step-ok">Проект зарегистрирован</div>';
+            loadProjects();
+        }
+
         async function registerProject(event) {
             event.preventDefault();
             const form = event.target;
@@ -583,21 +607,23 @@
                 const result = await response.json();
 
                 if (response.ok && result.success) {
-                    form.style.display = 'none';
-                    const resultDiv = document.getElementById('registration-result');
-                    resultDiv.style.display = 'block';
-
-                    const steps = result.project.steps || {};
-                    let logHtml = '';
-                    for (const [key, step] of Object.entries(steps)) {
-                        if (step.done) {
-                            logHtml += `<div class="step-ok">&#10003; ${escapeHtml(key)}: ${escapeHtml(step.detail || 'OK')}</div>`;
+                    showRegistrationResult(form, result);
+                } else if (response.status === 409 && result.existingProject) {
+                    // Проект уже существует — предложить перерегистрацию
+                    if (confirm(`Проект "${data.slug}" уже существует. Перерегистрировать?`)) {
+                        data.force = true;
+                        const retryResponse = await fetch('/api/publish/projects', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(data)
+                        });
+                        const retryResult = await retryResponse.json();
+                        if (retryResponse.ok && retryResult.success) {
+                            showRegistrationResult(form, retryResult);
                         } else {
-                            logHtml += `<div class="step-fail">&#10007; ${escapeHtml(key)}: ${escapeHtml(step.error || 'ошибка')}</div>`;
+                            showAlert('Ошибка: ' + (retryResult.error || 'Неизвестная ошибка'), 'error');
                         }
                     }
-                    document.getElementById('steps-log').innerHTML = logHtml || '<div class="step-ok">Проект зарегистрирован</div>';
-                    loadProjects();
                 } else {
                     showAlert('Ошибка: ' + (result.error || 'Неизвестная ошибка'), 'error');
                 }
@@ -606,6 +632,26 @@
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Зарегистрировать';
+            }
+        }
+
+        // Retry failed steps
+        async function retryProject(slug) {
+            if (!confirm('Повторить неуспешные шаги для проекта "' + slug + '"?')) return;
+            try {
+                const response = await fetch('/api/publish/projects/' + encodeURIComponent(slug) + '/retry', { method: 'PUT' });
+                const result = await response.json();
+                if (response.ok) {
+                    const msg = result.retried.length > 0
+                        ? 'Повторены шаги: ' + result.retried.join(', ')
+                        : 'Нет шагов для повтора';
+                    showAlert(msg + (result.project.status === 'ok' ? ' — всё готово!' : ' — ещё есть ошибки'), result.project.status === 'ok' ? 'success' : 'error');
+                    loadProjects();
+                } else {
+                    showAlert('Ошибка: ' + (result.error || response.status), 'error');
+                }
+            } catch (error) {
+                showAlert('Ошибка: ' + error.message, 'error');
             }
         }
 

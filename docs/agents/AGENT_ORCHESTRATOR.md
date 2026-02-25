@@ -189,7 +189,7 @@ curl -b cookies.txt http://127.0.0.1:3000/api/gitlab/projects
 curl -b cookies.txt -X DELETE http://127.0.0.1:3000/api/publish/projects/my-app
 ```
 
-> Удаляет только запись из реестра. DNS, Traefik, директории и CI файлы не удаляются автоматически.
+> Удаляет запись из реестра + откатывает: DNS записи, Traefik конфиг, CI файлы из GitLab (`.gitlab-ci.yml`, `.gitlab/ci/pipeline.yml`). Директории на сервере остаются.
 
 ### Обновить CI файлы проекта
 
@@ -228,13 +228,73 @@ curl -b cookies.txt -X PUT http://127.0.0.1:3000/api/publish/projects/my-app/upd
 
 Шаблоны пушатся в целевой репозиторий как `.gitlab/ci/pipeline.yml`, а `.gitlab-ci.yml` содержит только `include: local: '.gitlab/ci/pipeline.yml'`.
 
+## Обновление версий и документации (Draft/Publish)
+
+**Правило**: агент НЕ обновляет Strapi напрямую для project content (version, downloadUrl). Все обновления проходят через Management UI и требуют одобрения администратора.
+
+### Flow обновления версии продукта
+
+```
+Агент создаёт тег v* в GitLab → CI запускает product pipeline →
+CI отправляет webhook в Management UI (/api/publish/projects/:slug/release) →
+Запись обновляется в Strapi как draft (publishedAt: null) →
+Администратор видит черновик в Management UI (страница "Контент") →
+Администратор нажимает "Опубликовать" → запись становится published на сайте
+```
+
+### Flow обновления документации
+
+```
+Агент пушит в main → CI запускает docs pipeline →
+CI копирует файлы на сервер + отправляет webhook в Management UI →
+Запись обновляется как draft → Администратор публикует через UI
+```
+
+### Как отправить релиз напрямую через API
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/publish/projects/my-app/release \
+  -H "Authorization: Bearer <токен>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "version": "v1.2.0",
+    "downloadUrl": "/downloads/my-app/",
+    "changelog": "Описание изменений",
+    "source": "agent"
+  }'
+```
+
+Релиз попадает в очередь как draft. Для публикации на сайте — одобрение через Management UI.
+
+### Перерегистрация проекта (force)
+
+Если проект уже существует, можно перерегистрировать с `force: true`:
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/publish/projects \
+  -H "Authorization: Bearer <токен>" \
+  -H "Content-Type: application/json" \
+  -d '{ "gitlabProjectId": 5, "slug": "my-app", "projectType": "deploy", "force": true }'
+```
+
+### Повтор неуспешных шагов
+
+Если регистрация завершилась частично (status: "partial"):
+
+```bash
+curl -X PUT http://127.0.0.1:3000/api/publish/projects/my-app/retry \
+  -H "Authorization: Bearer <токен>"
+```
+
 ## Рекомендации
 
 1. **Проверяй slug** — должен быть уникальным, латиница и дефисы
 2. **Проверяй steps** — каждый шаг может завершиться ошибкой независимо
 3. **deploy** — самый комплексный сценарий, проверяй DNS и Traefik после регистрации
-4. **Повторная регистрация** — slug должен быть уникальным, удали старый проект перед повторной
-5. **update-ci** — используй для обновления CI после изменения шаблонов
+4. **Перерегистрация** — используй `force: true` вместо удаления + повторной регистрации
+5. **Partial** — используй `retry` для повтора неуспешных шагов
+6. **update-ci** — используй для обновления CI после изменения шаблонов
+7. **Версии** — не обновляй Strapi напрямую, используй release endpoint или git tags
 
 ## Защищённые ветки и Merge Request
 
