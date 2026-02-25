@@ -102,9 +102,23 @@ if [ -f "$USERS_DB" ]; then
             UPDATED=$((UPDATED + 1))
         else
             echo "  [OK] email в users_database.yml актуален ($AUTHELIA_EMAIL)"
-            # Authelia перечитывает users_database только при старте — принудительный restart
-            # для гарантии что OIDC userinfo отдаёт актуальный email
+            # Принудительный restart для гарантии актуального email в OIDC
             UPDATED=$((UPDATED + 1))
+        fi
+
+        # Очистка OIDC сессий/токенов в SQLite — старые токены содержат закешированный email
+        AUTHELIA_DB="/var/lib/authelia/db.sqlite3"
+        if [ -f "$AUTHELIA_DB" ] && command -v sqlite3 &>/dev/null; then
+            echo "  Очистка OIDC сессий (сброс закешированных claims)..."
+            sqlite3 "$AUTHELIA_DB" "DELETE FROM oauth2_consent_session;" 2>/dev/null || true
+            sqlite3 "$AUTHELIA_DB" "DELETE FROM oauth2_access_token_session;" 2>/dev/null || true
+            sqlite3 "$AUTHELIA_DB" "DELETE FROM oauth2_refresh_token_session;" 2>/dev/null || true
+            sqlite3 "$AUTHELIA_DB" "DELETE FROM oauth2_authorization_code_session;" 2>/dev/null || true
+            sqlite3 "$AUTHELIA_DB" "DELETE FROM oauth2_pkce_request_session;" 2>/dev/null || true
+            sqlite3 "$AUTHELIA_DB" "DELETE FROM oauth2_openid_connect_session;" 2>/dev/null || true
+            echo "  [OK] OIDC сессии очищены"
+        elif [ -f "$AUTHELIA_DB" ]; then
+            echo "  [Предупреждение] sqlite3 не установлен — не удалось очистить OIDC кеш"
         fi
     fi
     # Обновить displayname если указан
@@ -157,6 +171,13 @@ fi
 MGMT_CONFIG="/etc/management-ui/config.json"
 if [ -f "$MGMT_CONFIG" ] && grep -q '"oidc"' "$MGMT_CONFIG"; then
     echo "  [Инфо] OIDC секция в config.json больше не используется (ForwardAuth через Traefik)"
+fi
+
+# Диагностика: показать актуальный email из users_database.yml
+if [ -f "$USERS_DB" ]; then
+    DIAG_EMAIL=$(grep -oP "email:\s*'\K[^']+" "$USERS_DB" 2>/dev/null || echo "не найден")
+    DIAG_USER=$(grep -oP "^\s+\K\w+(?=:$)" "$USERS_DB" 2>/dev/null | head -1 || echo "не найден")
+    echo "  [Диагностика] users_database.yml: user=$DIAG_USER, email=$DIAG_EMAIL"
 fi
 
 # Health check
