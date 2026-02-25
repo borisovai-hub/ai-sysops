@@ -102,6 +102,9 @@ if [ -f "$USERS_DB" ]; then
             UPDATED=$((UPDATED + 1))
         else
             echo "  [OK] email в users_database.yml актуален ($AUTHELIA_EMAIL)"
+            # Authelia перечитывает users_database только при старте — принудительный restart
+            # для гарантии что OIDC userinfo отдаёт актуальный email
+            UPDATED=$((UPDATED + 1))
         fi
     fi
     # Обновить displayname если указан
