@@ -95,28 +95,28 @@ if [ -f "$USERS_DB" ]; then
         save_config_value "authelia_email" "$AUTHELIA_EMAIL" 2>/dev/null || true
         [ -n "$AUTHELIA_USERNAME" ] && save_config_value "authelia_username" "$AUTHELIA_USERNAME" 2>/dev/null || true
 
-        # Извлечение текущего email — поддержка с кавычками и без
-        CURRENT_EMAIL=$(grep -oP "email:\s*['\"]?\K[^'\"\\s]+" "$USERS_DB" 2>/dev/null || true)
-        # Фоллбэк: без -P (Perl regex)
-        if [ -z "$CURRENT_EMAIL" ]; then
-            CURRENT_EMAIL=$(grep "email:" "$USERS_DB" 2>/dev/null | sed "s/.*email:\s*['\"]*//" | sed "s/['\"].*//" | tr -d '[:space:]' || true)
-        fi
-        echo "  [Диагностика] Текущий email в файле: '${CURRENT_EMAIL:-пусто}'"
-        echo "  [Диагностика] Целевой email: '${AUTHELIA_EMAIL}'"
-        echo "  [Диагностика] Строка email из файла: $(grep 'email:' "$USERS_DB" 2>/dev/null || echo 'не найдена')"
+        # Определение целевого пользователя в YAML
+        TARGET_USER="${AUTHELIA_USERNAME:-admin}"
+
+        # Извлечение email только для целевого пользователя (awk: найти блок user, вернуть email)
+        CURRENT_EMAIL=$(awk -v user="  ${TARGET_USER}:" '
+            $0 == user { found=1; next }
+            found && /^  [^ ]/ { found=0 }
+            found && /email:/ { gsub(/.*email:[[:space:]]*/, ""); gsub(/['"'"'"]/, ""); print; exit }
+        ' "$USERS_DB" 2>/dev/null || true)
+
+        echo "  [Диагностика] user=${TARGET_USER}, текущий email='${CURRENT_EMAIL:-пусто}', целевой='${AUTHELIA_EMAIL}'"
 
         if [ -n "$CURRENT_EMAIL" ] && [ "$CURRENT_EMAIL" != "$AUTHELIA_EMAIL" ]; then
             echo "  Обновление email: $CURRENT_EMAIL -> $AUTHELIA_EMAIL"
-            # Замена email в любом формате (с кавычками и без)
-            sed -i "s|email:.*|email: '${AUTHELIA_EMAIL}'|" "$USERS_DB"
+            # Замена только в блоке целевого пользователя (sed address range)
+            sed -i "/^  ${TARGET_USER}:/,/^  [^ ]/{ s|email:.*|email: '${AUTHELIA_EMAIL}'| }" "$USERS_DB"
             UPDATED=$((UPDATED + 1))
         elif [ -z "$CURRENT_EMAIL" ]; then
-            echo "  [Предупреждение] Не удалось извлечь email из файла — принудительная замена"
-            sed -i "s|email:.*|email: '${AUTHELIA_EMAIL}'|" "$USERS_DB"
+            echo "  [Предупреждение] Email для ${TARGET_USER} не найден в файле"
             UPDATED=$((UPDATED + 1))
         else
-            echo "  [OK] email в users_database.yml актуален"
-            # Принудительный restart для гарантии актуального email в OIDC
+            echo "  [OK] email для ${TARGET_USER} актуален"
             UPDATED=$((UPDATED + 1))
         fi
 
@@ -138,10 +138,14 @@ if [ -f "$USERS_DB" ]; then
     # Обновить displayname если указан
     AUTHELIA_DISPLAYNAME="${AUTHELIA_DISPLAYNAME:-$(get_config_value "authelia_displayname" 2>/dev/null)}"
     if [ -n "$AUTHELIA_DISPLAYNAME" ]; then
-        CURRENT_DISPLAYNAME=$(grep "displayname:" "$USERS_DB" 2>/dev/null | sed "s/.*displayname:\s*['\"]*//" | sed "s/['\"].*//" | xargs || true)
+        CURRENT_DISPLAYNAME=$(awk -v user="  ${TARGET_USER}:" '
+            $0 == user { found=1; next }
+            found && /^  [^ ]/ { found=0 }
+            found && /displayname:/ { gsub(/.*displayname:[[:space:]]*/, ""); gsub(/['"'"'"]/, ""); print; exit }
+        ' "$USERS_DB" 2>/dev/null || true)
         if [ -n "$CURRENT_DISPLAYNAME" ] && [ "$CURRENT_DISPLAYNAME" != "$AUTHELIA_DISPLAYNAME" ]; then
             echo "  Обновление displayname: $CURRENT_DISPLAYNAME -> $AUTHELIA_DISPLAYNAME"
-            sed -i "s|displayname:.*|displayname: '${AUTHELIA_DISPLAYNAME}'|" "$USERS_DB"
+            sed -i "/^  ${TARGET_USER}:/,/^  [^ ]/{ s|displayname:.*|displayname: '${AUTHELIA_DISPLAYNAME}'| }" "$USERS_DB"
             UPDATED=$((UPDATED + 1))
         fi
     fi
