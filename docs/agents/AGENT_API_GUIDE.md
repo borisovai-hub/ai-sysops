@@ -327,6 +327,54 @@ curl -g 'https://api.borisovai.tech/api/notes?pagination[page]=1&pagination[page
 }
 ```
 
+## Draft/Publish — контроль публикации
+
+### Правило: всё создаётся как draft
+
+Все записи, создаваемые агентами, должны создаваться как **draft** (`publishedAt: null`). Администратор публикует через Management UI (страница "Контент").
+
+### Создание заметки как draft
+
+```bash
+curl -X POST https://api.borisovai.tech/api/v1/notes \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title_ru": "Заголовок",
+    "content_ru": "Контент",
+    "publishedAt": null
+  }'
+```
+
+### Обновление версий проектов
+
+**НЕ обновляй** поля `version`, `downloadUrl` проектов через прямой Strapi API. Используй release endpoint Management UI:
+
+```bash
+curl -X POST https://admin.borisovai.tech/api/publish/projects/my-app/release \
+  -H "Authorization: Bearer $MANAGEMENT_UI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "version": "v1.2.0",
+    "downloadUrl": "/downloads/my-app/",
+    "source": "agent"
+  }'
+```
+
+Это обновит Strapi как draft. Администратор опубликует через UI.
+
+### Что можно делать напрямую через Strapi API
+
+- Создание notes (с `publishedAt: null`)
+- Создание threads (с `publishedAt: null`)
+- Загрузка изображений
+- Создание тегов
+
+### Что НЕЛЬЗЯ делать напрямую через Strapi API
+
+- Обновлять project version/downloadUrl (только через Management UI release endpoint)
+- Публиковать записи (`publishedAt: new Date()`) — только администратор через UI
+
 ## Рекомендации для агента
 
 1. **Всегда указывай `source`** — это помогает отслеживать откуда пришла заметка
@@ -336,3 +384,5 @@ curl -g 'https://api.borisovai.tech/api/notes?pagination[page]=1&pagination[page
 5. **Оба языка** — если возможно, указывай `title_ru`+`title_en` и `content_ru`+`content_en`
 6. **content_html** — для форматированного контента передавай HTML-версию
 7. **Проверяй ответ** — `url` из ответа можно использовать для подтверждения публикации
+8. **Draft по умолчанию** — всегда передавай `publishedAt: null` для контроля публикации
+9. **Версии проектов** — только через Management UI release endpoint, не через Strapi

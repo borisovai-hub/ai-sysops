@@ -173,6 +173,23 @@ try {
     console.warn('Install config не найден:', INSTALL_CONFIG_FILE);
 }
 
+// URL Management UI для CI-переменных (первый base_domain с префиксом admin)
+function getManagementUiUrl() {
+    const domains = getBaseDomains();
+    if (domains.length > 0) return `https://admin.${domains[0]}`;
+    return 'http://127.0.0.1:3000';
+}
+
+// Bearer-токен для CI — первый токен из auth.json
+function getManagementUiToken() {
+    try {
+        const authData = fs.readJsonSync(AUTH_FILE);
+        const tokens = authData.tokens || [];
+        if (tokens.length > 0) return tokens[0].token;
+    } catch (e) { /* */ }
+    return '';
+}
+
 function getBaseDomains() {
     const raw = installConfig.base_domains || '';
     if (!raw) return [];
@@ -243,18 +260,22 @@ async function deleteDnsRecord(subdomain) {
     }
 }
 
-async function createTraefikConfig(name, domain, internalIp, port) {
+async function createTraefikConfig(name, domain, internalIp, port, options = {}) {
     // domain может быть через запятую: "slug.borisovai.ru,slug.borisovai.tech"
     const hostRule = buildHostRule(domain) || `Host(\`${domain}\`)`;
+    const router = {
+        rule: hostRule,
+        service: name,
+        entryPoints: ['websecure'],
+        tls: { certResolver: 'letsencrypt' }
+    };
+    if (options.authelia) {
+        router.middlewares = ['authelia@file'];
+    }
     const configContent = {
         http: {
             routers: {
-                [name]: {
-                    rule: hostRule,
-                    service: name,
-                    entryPoints: ['websecure'],
-                    tls: { certResolver: 'letsencrypt' }
-                }
+                [name]: router
             },
             services: {
                 [name]: {
@@ -322,6 +343,18 @@ async function pushFileToGitlab(projectId, filePath, content, branch, commitMess
     }
 }
 
+async function deleteFileFromGitlab(projectId, filePath, branch, commitMessage) {
+    const encodedPath = encodeURIComponent(filePath);
+    try {
+        await gitlabApi('delete', `/projects/${projectId}/repository/files/${encodedPath}`, {
+            branch, commit_message: commitMessage
+        });
+    } catch (error) {
+        if (error.response && error.response.status === 404) return; // файла нет — OK
+        throw error;
+    }
+}
+
 async function setGitlabCiVariable(projectId, key, value, options = {}) {
     const payload = {
         key,
@@ -357,18 +390,22 @@ async function strapiApi(method, endpoint, data) {
     return response.data;
 }
 
-async function createOrUpdateStrapiProject(slug, fields) {
+async function createOrUpdateStrapiProject(slug, fields, options = {}) {
     try {
-        // Search by slug
-        const existing = await strapiApi('get', `/projects?filters[slug][$eq]=${slug}`);
+        // Search by slug (включая drafts)
+        const existing = await strapiApi('get', `/projects?filters[slug][$eq]=${slug}&status=draft`);
         if (existing.data && existing.data.length > 0) {
             const id = existing.data[0].id;
-            await strapiApi('put', `/projects/${id}`, { data: fields });
-            return { done: true, detail: `Strapi проект #${id} обновлён`, id };
+            const updateData = { ...fields };
+            if (options.draft) updateData.publishedAt = null;
+            await strapiApi('put', `/projects/${id}`, { data: updateData });
+            return { done: true, detail: `Strapi проект #${id} обновлён${options.draft ? ' (draft)' : ''}`, id };
         }
-        // Create new
-        const created = await strapiApi('post', '/projects', { data: { slug, ...fields } });
-        return { done: true, detail: `Strapi проект #${created.data.id} создан`, id: created.data.id };
+        // Create new — по умолчанию как draft
+        const createData = { slug, ...fields };
+        if (options.draft !== false) createData.publishedAt = null;
+        const created = await strapiApi('post', '/projects', { data: createData });
+        return { done: true, detail: `Strapi проект #${created.data.id} создан (draft)`, id: created.data.id };
     } catch (error) {
         return { done: false, error: error.message };
     }
@@ -1237,10 +1274,18 @@ app.post('/api/publish/projects', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'Необходимы параметры: gitlabProjectId, slug, projectType' });
         }
 
-        // Check slug uniqueness
+        // Check slug uniqueness (force: true позволяет перерегистрацию)
         const projects = loadProjects();
-        if (projects.find(p => p.slug === slug)) {
-            return res.status(400).json({ error: `Проект с slug "${slug}" уже существует` });
+        const existingIdx = projects.findIndex(p => p.slug === slug);
+        if (existingIdx !== -1 && !req.body.force) {
+            return res.status(409).json({
+                error: `Проект с slug "${slug}" уже существует. Используйте force:true для перерегистрации.`,
+                existingProject: projects[existingIdx]
+            });
+        }
+        if (existingIdx !== -1) {
+            // Перерегистрация: удалить старую запись
+            projects.splice(existingIdx, 1);
         }
 
         // Get project info from GitLab
@@ -1295,7 +1340,7 @@ app.post('/api/publish/projects', requireAuth, async (req, res) => {
 
             // Traefik
             try {
-                steps.traefik = await createTraefikConfig(slug, projectDomain, '127.0.0.1', port);
+                steps.traefik = await createTraefikConfig(slug, projectDomain, '127.0.0.1', port, { authelia: true });
                 reloadTraefik();
             } catch (error) {
                 steps.traefik = { done: false, error: error.message };
@@ -1373,10 +1418,15 @@ app.post('/api/publish/projects', requireAuth, async (req, res) => {
                 steps.ci = { done: false, error: error.message };
             }
 
-            // Set CI variable
+            // Set CI variables
             try {
+                const managementUiUrl = getManagementUiUrl();
+                const managementUiToken = getManagementUiToken();
                 await setGitlabCiVariable(gitlabProjectId, 'DOCS_DEPLOY_PATH', `/var/www/docs/${slug}`);
-                steps.variables = { done: true, detail: 'DOCS_DEPLOY_PATH' };
+                await setGitlabCiVariable(gitlabProjectId, 'PROJECT_SLUG', slug);
+                await setGitlabCiVariable(gitlabProjectId, 'MANAGEMENT_UI_URL', managementUiUrl);
+                await setGitlabCiVariable(gitlabProjectId, 'MANAGEMENT_UI_TOKEN', managementUiToken, { masked: true });
+                steps.variables = { done: true, detail: 'DOCS_DEPLOY_PATH, PROJECT_SLUG, MANAGEMENT_UI_URL, MANAGEMENT_UI_TOKEN' };
             } catch (error) {
                 steps.variables = { done: false, error: error.message };
             }
@@ -1442,17 +1492,22 @@ app.post('/api/publish/projects', requireAuth, async (req, res) => {
                 steps.ci = { done: false, error: error.message };
             }
 
-            // Set CI variables
+            // Set CI variables — Management UI webhook вместо прямого Strapi
             try {
-                await setGitlabCiVariable(gitlabProjectId, 'STRAPI_API_URL', config.strapi_url || '');
-                await setGitlabCiVariable(gitlabProjectId, 'STRAPI_API_TOKEN', config.strapi_token || '', { masked: true });
+                const managementUiUrl = getManagementUiUrl();
+                const managementUiToken = getManagementUiToken();
+                await setGitlabCiVariable(gitlabProjectId, 'MANAGEMENT_UI_URL', managementUiUrl);
+                await setGitlabCiVariable(gitlabProjectId, 'MANAGEMENT_UI_TOKEN', managementUiToken, { masked: true });
                 await setGitlabCiVariable(gitlabProjectId, 'PROJECT_SLUG', slug);
                 await setGitlabCiVariable(gitlabProjectId, 'DOWNLOADS_PATH', `/var/www/downloads/${slug}`);
-                steps.variables = { done: true, detail: 'STRAPI_API_URL, STRAPI_API_TOKEN, PROJECT_SLUG, DOWNLOADS_PATH' };
+                steps.variables = { done: true, detail: 'MANAGEMENT_UI_URL, MANAGEMENT_UI_TOKEN, PROJECT_SLUG, DOWNLOADS_PATH' };
             } catch (error) {
                 steps.variables = { done: false, error: error.message };
             }
         }
+
+        // Статус: ok если все шаги успешны, partial если есть ошибки
+        projectRecord.status = Object.values(steps).every(s => s?.done) ? 'ok' : 'partial';
 
         // Save to registry
         projects.push(projectRecord);
@@ -1461,6 +1516,129 @@ app.post('/api/publish/projects', requireAuth, async (req, res) => {
         res.json({ success: true, project: projectRecord });
     } catch (error) {
         console.error('Ошибка создания проекта:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// PUT /api/publish/projects/:slug/retry — повторить failed шаги
+app.put('/api/publish/projects/:slug/retry', requireAuth, async (req, res) => {
+    try {
+        const slug = sanitizeString(req.params.slug);
+        const projects = loadProjects();
+        const project = projects.find(p => p.slug === slug);
+        if (!project) return res.status(404).json({ error: 'Проект не найден' });
+
+        const steps = project.steps || {};
+        const { gitlabProjectId, defaultBranch, projectType, appType, domain: projectDomain } = project;
+        const branch = defaultBranch || 'main';
+        const runnerTag = config.runner_tag || 'deploy-production';
+        const port = project.ports?.frontend;
+        const title = project.title || slug;
+        const description = project.description || '';
+        let retried = [];
+
+        // Retry DNS
+        if (steps.dns && !steps.dns.done && projectType === 'deploy') {
+            try {
+                const externalIp = await getExternalIp();
+                steps.dns = await createDnsRecordsForAllDomains(slug, externalIp);
+                retried.push('dns');
+            } catch (error) {
+                steps.dns = { done: false, error: error.message };
+            }
+        }
+
+        // Retry Traefik
+        if (steps.traefik && !steps.traefik.done && projectType === 'deploy' && port) {
+            try {
+                steps.traefik = await createTraefikConfig(slug, projectDomain, '127.0.0.1', port, { authelia: true });
+                reloadTraefik();
+                retried.push('traefik');
+            } catch (error) {
+                steps.traefik = { done: false, error: error.message };
+            }
+        }
+
+        // Retry directories
+        if (steps.directories && !steps.directories.done) {
+            try {
+                let dirPath;
+                if (projectType === 'deploy') dirPath = `/var/www/${slug}`;
+                else if (projectType === 'docs') dirPath = `/var/www/docs/${slug}`;
+                else if (projectType === 'product') dirPath = `/var/www/downloads/${slug}`;
+                if (dirPath) {
+                    execSync(`mkdir -p ${dirPath} && chown -R gitlab-runner:gitlab-runner ${dirPath}`, { stdio: 'pipe' });
+                    steps.directories = { done: true, detail: dirPath };
+                    retried.push('directories');
+                }
+            } catch (error) {
+                steps.directories = { done: false, error: error.message };
+            }
+        }
+
+        // Retry CI
+        if (steps.ci && !steps.ci.done && gitlabProjectId) {
+            try {
+                const templateFileName = getTemplateForProject(projectType, appType);
+                const template = loadTemplate(templateFileName);
+                const rendered = renderTemplate(template, {
+                    SLUG: slug, DOMAIN: projectDomain || '', PORT: String(port || ''),
+                    RUNNER_TAG: runnerTag, DEFAULT_BRANCH: branch, APP_TYPE: appType || 'frontend'
+                });
+                const mainCi = `include:\n  - local: '.gitlab/ci/pipeline.yml'\n`;
+                await pushFileToGitlab(gitlabProjectId, '.gitlab-ci.yml', mainCi, branch, `chore: CI retry for ${slug}`);
+                await pushFileToGitlab(gitlabProjectId, '.gitlab/ci/pipeline.yml', rendered, branch, `chore: pipeline retry for ${slug}`);
+                steps.ci = { done: true, detail: 'CI файлы загружены (retry)' };
+                retried.push('ci');
+            } catch (error) {
+                steps.ci = { done: false, error: error.message };
+            }
+        }
+
+        // Retry Strapi
+        if (steps.strapi && !steps.strapi.done) {
+            try {
+                steps.strapi = await createOrUpdateStrapiProject(slug, { title, description });
+                retried.push('strapi');
+            } catch (error) {
+                steps.strapi = { done: false, error: error.message };
+            }
+        }
+
+        // Retry variables
+        if (steps.variables && !steps.variables.done && gitlabProjectId) {
+            try {
+                if (projectType === 'deploy') {
+                    await setGitlabCiVariable(gitlabProjectId, 'DEPLOY_PATH', `/var/www/${slug}`);
+                    await setGitlabCiVariable(gitlabProjectId, 'PM2_APP_NAME', slug);
+                } else if (projectType === 'product') {
+                    const managementUiUrl = getManagementUiUrl();
+                    const managementUiToken = getManagementUiToken();
+                    await setGitlabCiVariable(gitlabProjectId, 'MANAGEMENT_UI_URL', managementUiUrl);
+                    await setGitlabCiVariable(gitlabProjectId, 'MANAGEMENT_UI_TOKEN', managementUiToken, { masked: true });
+                    await setGitlabCiVariable(gitlabProjectId, 'PROJECT_SLUG', slug);
+                    await setGitlabCiVariable(gitlabProjectId, 'DOWNLOADS_PATH', `/var/www/downloads/${slug}`);
+                } else if (projectType === 'docs') {
+                    const managementUiUrl = getManagementUiUrl();
+                    const managementUiToken = getManagementUiToken();
+                    await setGitlabCiVariable(gitlabProjectId, 'DOCS_DEPLOY_PATH', `/var/www/docs/${slug}`);
+                    await setGitlabCiVariable(gitlabProjectId, 'PROJECT_SLUG', slug);
+                    await setGitlabCiVariable(gitlabProjectId, 'MANAGEMENT_UI_URL', managementUiUrl);
+                    await setGitlabCiVariable(gitlabProjectId, 'MANAGEMENT_UI_TOKEN', managementUiToken, { masked: true });
+                }
+                steps.variables = { done: true, detail: 'CI переменные (retry)' };
+                retried.push('variables');
+            } catch (error) {
+                steps.variables = { done: false, error: error.message };
+            }
+        }
+
+        project.status = Object.values(steps).every(s => s?.done) ? 'ok' : 'partial';
+        saveProjects(projects);
+
+        res.json({ success: true, retried, project });
+    } catch (error) {
+        console.error('Ошибка retry проекта:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -1482,6 +1660,16 @@ app.delete('/api/publish/projects/:slug', requireAuth, async (req, res) => {
         }
         if (project.steps?.dns?.done) {
             await deleteDnsRecord(slug);
+        }
+        // Удаление CI файлов из GitLab-репозитория
+        if (project.steps?.ci?.done && project.gitlabProjectId) {
+            try {
+                const branch = project.defaultBranch || 'main';
+                await deleteFileFromGitlab(project.gitlabProjectId, '.gitlab/ci/pipeline.yml', branch, `chore: удаление CI для ${slug}`);
+                await deleteFileFromGitlab(project.gitlabProjectId, '.gitlab-ci.yml', branch, `chore: удаление CI для ${slug}`);
+            } catch (error) {
+                console.warn(`Не удалось удалить CI файлы для ${slug}:`, error.message);
+            }
         }
 
         projects.splice(idx, 1);
@@ -1538,6 +1726,192 @@ app.put('/api/publish/projects/:slug/update-ci', requireAuth, async (req, res) =
         res.json({ success: true, message: 'CI файлы обновлены' });
     } catch (error) {
         console.error('Ошибка обновления CI:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/publish/projects/:slug/release — webhook от CI/агента для обновления версии (draft)
+app.post('/api/publish/projects/:slug/release', requireAuth, async (req, res) => {
+    try {
+        const slug = sanitizeString(req.params.slug);
+        const { version, downloadUrl, changelog, source } = req.body;
+
+        if (!version) {
+            return res.status(400).json({ error: 'Необходим параметр: version' });
+        }
+
+        const projects = loadProjects();
+        const project = projects.find(p => p.slug === slug);
+        if (!project) return res.status(404).json({ error: `Проект "${slug}" не найден в реестре` });
+
+        // Обновить Strapi (version, downloadUrl) как draft
+        const updateFields = { version };
+        if (downloadUrl) updateFields.downloadUrl = downloadUrl;
+        if (changelog) updateFields.changelog = changelog;
+
+        let strapiResult = null;
+        try {
+            strapiResult = await createOrUpdateStrapiProject(slug, updateFields, { draft: true });
+        } catch (error) {
+            console.warn(`Release ${slug}: не удалось обновить Strapi:`, error.message);
+        }
+
+        // Записать в releases[]
+        if (!project.releases) project.releases = [];
+        const release = {
+            version,
+            downloadUrl: downloadUrl || '',
+            changelog: changelog || '',
+            source: source || 'unknown',
+            action: 'release',
+            strapiUpdated: strapiResult?.done || false,
+            at: new Date().toISOString()
+        };
+        project.releases.unshift(release);
+        saveProjects(projects);
+
+        res.json({ success: true, release, strapiResult });
+    } catch (error) {
+        console.error('Ошибка release:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/publish/projects/:slug/releases — история релизов
+app.get('/api/publish/projects/:slug/releases', requireAuth, (req, res) => {
+    const slug = sanitizeString(req.params.slug);
+    const projects = loadProjects();
+    const project = projects.find(p => p.slug === slug);
+    if (!project) return res.status(404).json({ error: 'Проект не найден' });
+    res.json({ releases: project.releases || [] });
+});
+
+// ============================================================
+// Управление контентом — Draft/Publish
+// ============================================================
+
+// GET /api/content/drafts — список черновиков из Strapi
+app.get('/api/content/drafts', requireAuth, async (req, res) => {
+    try {
+        const drafts = [];
+        // Получить draft-проекты
+        try {
+            const projects = await strapiApi('get', '/projects?status=draft&pagination[pageSize]=100');
+            if (projects.data) {
+                for (const item of projects.data) {
+                    drafts.push({
+                        id: item.id,
+                        contentType: 'projects',
+                        title: item.title || item.slug || `#${item.id}`,
+                        slug: item.slug,
+                        updatedAt: item.updatedAt,
+                        publishedAt: item.publishedAt
+                    });
+                }
+            }
+        } catch (e) { console.warn('Не удалось получить draft-проекты:', e.message); }
+
+        // Получить draft-notes (v1 plugin)
+        try {
+            const notes = await strapiApi('get', '/notes?status=draft&pagination[pageSize]=100');
+            if (notes.data) {
+                for (const item of notes.data) {
+                    drafts.push({
+                        id: item.id,
+                        contentType: 'notes',
+                        title: item.title_ru || item.title_en || `#${item.id}`,
+                        slug: item.slug,
+                        updatedAt: item.updatedAt,
+                        publishedAt: item.publishedAt
+                    });
+                }
+            }
+        } catch (e) { /* notes могут не существовать */ }
+
+        res.json({ success: true, drafts });
+    } catch (error) {
+        console.error('Ошибка получения черновиков:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// PUT /api/content/:contentType/:id/publish — опубликовать запись
+app.put('/api/content/:contentType/:id/publish', requireAuth, async (req, res) => {
+    try {
+        const { contentType, id } = req.params;
+        const allowedTypes = ['projects', 'notes', 'threads', 'blog-notes'];
+        if (!allowedTypes.includes(contentType)) {
+            return res.status(400).json({ error: `Недопустимый content type: ${contentType}` });
+        }
+
+        const now = new Date().toISOString();
+        await strapiApi('put', `/${contentType}/${id}`, { data: { publishedAt: now } });
+
+        // Записать в аудит-лог если это проект
+        if (contentType === 'projects') {
+            try {
+                const strapiProject = await strapiApi('get', `/${contentType}/${id}`);
+                const slug = strapiProject.data?.slug;
+                if (slug) {
+                    const projects = loadProjects();
+                    const project = projects.find(p => p.slug === slug);
+                    if (project) {
+                        if (!project.releases) project.releases = [];
+                        project.releases.unshift({
+                            version: strapiProject.data?.version || '',
+                            source: 'admin',
+                            action: 'publish',
+                            at: now
+                        });
+                        saveProjects(projects);
+                    }
+                }
+            } catch (e) { console.warn('Не удалось обновить аудит-лог:', e.message); }
+        }
+
+        res.json({ success: true, message: `Опубликовано: ${contentType}/${id}` });
+    } catch (error) {
+        console.error('Ошибка публикации:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// PUT /api/content/:contentType/:id/unpublish — снять с публикации
+app.put('/api/content/:contentType/:id/unpublish', requireAuth, async (req, res) => {
+    try {
+        const { contentType, id } = req.params;
+        const allowedTypes = ['projects', 'notes', 'threads', 'blog-notes'];
+        if (!allowedTypes.includes(contentType)) {
+            return res.status(400).json({ error: `Недопустимый content type: ${contentType}` });
+        }
+
+        await strapiApi('put', `/${contentType}/${id}`, { data: { publishedAt: null } });
+
+        // Аудит-лог для проектов
+        if (contentType === 'projects') {
+            try {
+                const strapiProject = await strapiApi('get', `/${contentType}/${id}?status=draft`);
+                const slug = strapiProject.data?.slug;
+                if (slug) {
+                    const projects = loadProjects();
+                    const project = projects.find(p => p.slug === slug);
+                    if (project) {
+                        if (!project.releases) project.releases = [];
+                        project.releases.unshift({
+                            version: strapiProject.data?.version || '',
+                            source: 'admin',
+                            action: 'unpublish',
+                            at: new Date().toISOString()
+                        });
+                        saveProjects(projects);
+                    }
+                }
+            } catch (e) { console.warn('Не удалось обновить аудит-лог:', e.message); }
+        }
+
+        res.json({ success: true, message: `Снято с публикации: ${contentType}/${id}` });
+    } catch (error) {
+        console.error('Ошибка снятия с публикации:', error);
         res.status(500).json({ error: error.message });
     }
 });
