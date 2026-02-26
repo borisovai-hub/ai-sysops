@@ -82,6 +82,68 @@ else
     echo "  Папка dynamic/ не найдена — пропуск"
 fi
 
+# [1.5/2] DNS-записи для доменов из Traefik-конфигов (идемпотентно)
+DNS_API_PORT=5353
+DNS_API_BASE="http://127.0.0.1:${DNS_API_PORT}"
+DNS_CONFIG="/etc/dns-api/config.json"
+
+if [ -f "$DNS_CONFIG" ]; then
+    SERVER_IP=$(hostname -I | awk '{print $1}')
+
+    # Читаем base_domains из install-config.json
+    BASE_DOMAINS=""
+    if [ -f /etc/install-config.json ]; then
+        BASE_DOMAINS=$(grep -o '"base_domains"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/install-config.json \
+            | sed 's/.*"base_domains"[[:space:]]*:[[:space:]]*"//' | sed 's/"//')
+    fi
+
+    if [ -n "$SERVER_IP" ] && [ -n "$BASE_DOMAINS" ]; then
+        echo "Проверка DNS-записей (IP: $SERVER_IP)..."
+        EXISTING_RECORDS=$(curl -sf "${DNS_API_BASE}/api/records" 2>/dev/null || echo '{"records":[]}')
+
+        # Собираем все FQDN из Host() правил
+        ALL_HOSTS=""
+        for yml in "$TRAEFIK_DYNAMIC_DIR"/*.yml; do
+            [ ! -f "$yml" ] && continue
+            HOSTS=$(grep -oP 'Host\(\x60\K[^\x60]+' "$yml" 2>/dev/null || true)
+            [ -n "$HOSTS" ] && ALL_HOSTS="$ALL_HOSTS $HOSTS"
+        done
+
+        DNS_CREATED=0
+        IFS=',' read -ra BD_ARRAY <<< "$BASE_DOMAINS"
+        for FQDN in $ALL_HOSTS; do
+            for BD in "${BD_ARRAY[@]}"; do
+                BD=$(echo "$BD" | xargs)
+                if [[ "$FQDN" == *".$BD" ]]; then
+                    SUBDOMAIN="${FQDN%.$BD}"
+                    # Пропуск если запись уже существует
+                    if echo "$EXISTING_RECORDS" | grep -q "\"subdomain\":\"${SUBDOMAIN}\""; then
+                        break
+                    fi
+                    if curl -sf -X POST "${DNS_API_BASE}/api/records" \
+                        -H "Content-Type: application/json" \
+                        -d "{\"subdomain\":\"${SUBDOMAIN}\",\"domain\":\"${BD}\",\"ip\":\"${SERVER_IP}\"}" \
+                        > /dev/null 2>&1; then
+                        echo "  [DNS] ${SUBDOMAIN}.${BD} → ${SERVER_IP}"
+                        DNS_CREATED=$((DNS_CREATED + 1))
+                    fi
+                    break
+                fi
+            done
+        done
+
+        if [ "$DNS_CREATED" -eq 0 ]; then
+            echo "  DNS-записи без изменений"
+        else
+            echo "  Создано DNS-записей: $DNS_CREATED"
+        fi
+    else
+        echo "ПРЕДУПРЕЖДЕНИЕ: не удалось определить IP или base_domains — DNS-записи не созданы"
+    fi
+else
+    echo "DNS API не найден — пропуск DNS-записей"
+fi
+
 # [2/2] Static-конфиг (нужен рестарт Traefik при изменении)
 STATIC_SRC="$SERVER_CONFIG_DIR/traefik.yml"
 STATIC_TARGET="$TRAEFIK_DIR/traefik.yml"
