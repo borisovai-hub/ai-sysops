@@ -1262,7 +1262,7 @@ app.get('/api/publish/projects', requireAuth, (req, res) => {
 // POST /api/publish/projects — main orchestrator
 app.post('/api/publish/projects', requireAuth, async (req, res) => {
     try {
-        let { gitlabProjectId, slug, projectType, appType, domain, title, description } = req.body;
+        let { gitlabProjectId, slug, projectType, appType, domain, title, description, authelia } = req.body;
         slug = sanitizeString(slug);
         projectType = sanitizeString(projectType);
         appType = sanitizeString(appType || 'frontend');
@@ -1311,6 +1311,7 @@ app.post('/api/publish/projects', requireAuth, async (req, res) => {
             domain: projectDomain,
             title,
             description,
+            authelia: authelia !== false,
             pathWithNamespace,
             defaultBranch,
             createdAt: new Date().toISOString(),
@@ -1340,7 +1341,7 @@ app.post('/api/publish/projects', requireAuth, async (req, res) => {
 
             // Traefik
             try {
-                steps.traefik = await createTraefikConfig(slug, projectDomain, '127.0.0.1', port, { authelia: true });
+                steps.traefik = await createTraefikConfig(slug, projectDomain, '127.0.0.1', port, { authelia: authelia !== false });
                 reloadTraefik();
             } catch (error) {
                 steps.traefik = { done: false, error: error.message };
@@ -1551,7 +1552,7 @@ app.put('/api/publish/projects/:slug/retry', requireAuth, async (req, res) => {
         // Retry Traefik
         if (steps.traefik && !steps.traefik.done && projectType === 'deploy' && port) {
             try {
-                steps.traefik = await createTraefikConfig(slug, projectDomain, '127.0.0.1', port, { authelia: true });
+                steps.traefik = await createTraefikConfig(slug, projectDomain, '127.0.0.1', port, { authelia: project.authelia !== false });
                 reloadTraefik();
                 retried.push('traefik');
             } catch (error) {
