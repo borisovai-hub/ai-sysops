@@ -13,17 +13,15 @@ function readJsonFile<T>(path: string): T | null {
   }
 }
 
-// --- Repo root discovery ---
-
-const CONFIG_SUBDIR = 'config/contabo-sm-139';
+// --- Repo root discovery (borisovai-admin) ---
 
 function findRepoDir(): string {
   if (process.env.REPO_DIR) return process.env.REPO_DIR;
   if (existsSync(PATHS.REPO_DIR)) return PATHS.REPO_DIR;
-  // Dev: walk up from CWD looking for config/contabo-sm-139
+  // Dev: walk up from CWD looking for management-ui/
   let dir = process.cwd();
   for (let i = 0; i < 5; i++) {
-    if (existsSync(join(dir, CONFIG_SUBDIR))) return dir;
+    if (existsSync(join(dir, 'management-ui'))) return dir;
     const parent = resolve(dir, '..');
     if (parent === dir) break;
     dir = parent;
@@ -38,10 +36,56 @@ export function getRepoDir(): string {
   return _repoDir;
 }
 
-function repoPath(...segments: string[]): string {
+// --- Server config dir discovery (config repo) ---
+
+const DEFAULT_SERVER_NAME = 'contabo-sm-139';
+
+function findServerConfigDir(): string {
+  const serverName = process.env.SERVER_NAME || DEFAULT_SERVER_NAME;
+
+  // 1. Explicit env var
+  if (process.env.SERVER_CONFIG_DIR) return process.env.SERVER_CONFIG_DIR;
+
+  // 2. Config repo on server: /opt/server-configs/servers/<name>
+  const configRepoDir = process.env.CONFIG_REPO_DIR || PATHS.CONFIG_REPO_DIR;
+  const configRepoPath = join(configRepoDir, 'servers', serverName);
+  if (existsSync(configRepoPath)) return configRepoPath;
+
+  // 3. Legacy: config/<name> inside borisovai-admin
   const repo = getRepoDir();
-  if (!repo) return '';
-  return join(repo, CONFIG_SUBDIR, ...segments);
+  if (repo) {
+    const legacyPath = join(repo, 'config', serverName);
+    if (existsSync(legacyPath)) return legacyPath;
+  }
+
+  // 4. Dev: walk up from CWD
+  let dir = process.cwd();
+  for (let i = 0; i < 5; i++) {
+    // Config repo structure: servers/<name>/
+    const serversPath = join(dir, 'servers', serverName);
+    if (existsSync(serversPath)) return serversPath;
+    // Legacy structure: config/<name>/
+    const configPath = join(dir, 'config', serverName);
+    if (existsSync(configPath)) return configPath;
+    const parent = resolve(dir, '..');
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  return '';
+}
+
+let _serverConfigDir: string | undefined;
+
+export function getServerConfigDir(): string {
+  if (_serverConfigDir === undefined) _serverConfigDir = findServerConfigDir();
+  return _serverConfigDir;
+}
+
+function configPath(...segments: string[]): string {
+  const dir = getServerConfigDir();
+  if (!dir) return '';
+  return join(dir, ...segments);
 }
 
 // --- App config ---
@@ -100,7 +144,7 @@ export function getDbPath(): string {
 
 export function getTraefikConfigDir(): string {
   if (process.env.TRAEFIK_GITOPS === 'false') return PATHS.TRAEFIK_DYNAMIC;
-  const dir = repoPath('traefik', 'dynamic');
+  const dir = configPath('traefik', 'dynamic');
   if (dir && existsSync(dir)) return dir;
   return PATHS.TRAEFIK_DYNAMIC;
 }
@@ -114,7 +158,7 @@ export function isGitOpsMode(): boolean {
 
 export function getDnsRecordsPath(): string {
   if (process.env.DNS_GITOPS === 'false') return '';
-  return repoPath('dns', 'records.json');
+  return configPath('dns', 'records.json');
 }
 
 export function isDnsGitOps(): boolean {
@@ -125,20 +169,20 @@ export function isDnsGitOps(): boolean {
 
 export function getAutheliaUsersPath(): string {
   if (process.env.AUTHELIA_GITOPS === 'false') return PATHS.AUTHELIA_USERS;
-  const p = repoPath('authelia', 'users_database.yml');
+  const p = configPath('authelia', 'users_database.yml');
   if (p) return p;
   return PATHS.AUTHELIA_USERS;
 }
 
 export function getAutheliaMailboxesPath(): string {
   if (process.env.AUTHELIA_GITOPS === 'false') return PATHS.USER_MAILBOXES;
-  const p = repoPath('authelia', 'user-mailboxes.json');
+  const p = configPath('authelia', 'user-mailboxes.json');
   if (p) return p;
   return PATHS.USER_MAILBOXES;
 }
 
 export function isAutheliaGitOps(): boolean {
-  const p = repoPath('authelia', 'users_database.yml');
+  const p = configPath('authelia', 'users_database.yml');
   return p !== '' && getAutheliaUsersPath() === p;
 }
 
@@ -146,7 +190,7 @@ export function isAutheliaGitOps(): boolean {
 
 export function getRuProxyDomainsPath(): string {
   if (process.env.RU_PROXY_GITOPS === 'false') return '';
-  return repoPath('ru-proxy', 'domains.json');
+  return configPath('ru-proxy', 'domains.json');
 }
 
 export function isRuProxyGitOps(): boolean {

@@ -8,7 +8,13 @@ VALIDATE_ONLY=false
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-TEMPLATE_DIR="$REPO_ROOT/config/single-machine"
+# Шаблоны: config repo → legacy
+_config_repo="${CONFIG_REPO_DIR:-/opt/server-configs}"
+if [ -d "$_config_repo/templates" ]; then
+    TEMPLATE_DIR="$_config_repo/templates"
+else
+    TEMPLATE_DIR="$REPO_ROOT/config/single-machine"
+fi
 OUTPUT_DIR="$REPO_ROOT/rendered-configs"
 
 # Обязательные CI переменные

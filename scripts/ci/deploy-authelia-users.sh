@@ -14,21 +14,31 @@ if [ ! -f "/usr/local/bin/authelia" ]; then
     exit 0
 fi
 
-# Поиск конфиг-директории config/<server>/authelia/
-AUTHELIA_SRC=""
-for dir in "$REPO_ROOT"/config/*/authelia; do
-    [ ! -d "$dir" ] && continue
-    parent=$(basename "$(dirname "$dir")")
-    [ "$parent" = "single-machine" ] && continue
-    AUTHELIA_SRC="$dir"
-    echo "Источник: config/$parent/authelia/"
-    break
-done
+# Определение серверной конфиг-папки
+_find_server_dir() {
+    if [ -n "$SERVER_CONFIG_DIR" ] && [ -d "$SERVER_CONFIG_DIR" ]; then
+        echo "$SERVER_CONFIG_DIR"; return
+    fi
+    local cr="${CONFIG_REPO_DIR:-/opt/server-configs}"
+    local sn="${SERVER_NAME:-contabo-sm-139}"
+    [ -d "$cr/servers/$sn" ] && { echo "$cr/servers/$sn"; return; }
+    for d in "$REPO_ROOT"/config/*/; do
+        [ ! -d "$d" ] && continue
+        local p=$(basename "$d")
+        [ "$p" = "single-machine" ] || [ "$p" = "servers" ] && continue
+        echo "${d%/}"; return
+    done
+    echo ""
+}
 
-if [ -z "$AUTHELIA_SRC" ]; then
-    echo "Папка config/*/authelia/ не найдена — пропуск"
+SERVER_DIR="$(_find_server_dir)"
+AUTHELIA_SRC="$SERVER_DIR/authelia"
+
+if [ -z "$SERVER_DIR" ] || [ ! -d "$AUTHELIA_SRC" ]; then
+    echo "Папка authelia/ не найдена — пропуск"
     exit 0
 fi
+echo "Источник: $AUTHELIA_SRC/"
 
 UPDATED=0
 

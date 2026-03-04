@@ -11,25 +11,37 @@ TRAEFIK_DYNAMIC_DIR="$TRAEFIK_DIR/dynamic"
 
 echo "=== Деплой Traefik-конфигов ==="
 
-# Определение серверной папки: config/<server>/traefik/
-# Ищем первую подходящую (исключаем config/single-machine/ — это шаблон)
-SERVER_CONFIG_DIR=""
-for dir in "$REPO_ROOT"/config/*/traefik; do
-    [ ! -d "$dir" ] && continue
-    parent=$(basename "$(dirname "$dir")")
-    [ "$parent" = "single-machine" ] && continue
-    SERVER_CONFIG_DIR="$dir"
-    echo "Серверная папка: config/$parent/traefik/"
-    break
-done
+# Определение серверной конфиг-папки
+_find_server_dir() {
+    # 1. Явная переменная SERVER_CONFIG_DIR
+    if [ -n "$SERVER_CONFIG_DIR" ] && [ -d "$SERVER_CONFIG_DIR" ]; then
+        echo "$SERVER_CONFIG_DIR"; return
+    fi
+    # 2. Config repo: /opt/server-configs/servers/<name>
+    local cr="${CONFIG_REPO_DIR:-/opt/server-configs}"
+    local sn="${SERVER_NAME:-contabo-sm-139}"
+    [ -d "$cr/servers/$sn" ] && { echo "$cr/servers/$sn"; return; }
+    # 3. Legacy: config/<name> внутри borisovai-admin
+    for d in "$REPO_ROOT"/config/*/; do
+        [ ! -d "$d" ] && continue
+        local p=$(basename "$d")
+        [ "$p" = "single-machine" ] || [ "$p" = "servers" ] && continue
+        echo "${d%/}"; return
+    done
+    echo ""
+}
 
-if [ -z "$SERVER_CONFIG_DIR" ]; then
-    echo "ПРЕДУПРЕЖДЕНИЕ: серверная папка config/*/traefik/ не найдена — пропуск"
+SERVER_DIR="$(_find_server_dir)"
+TRAEFIK_SRC_DIR="$SERVER_DIR/traefik"
+
+if [ -z "$SERVER_DIR" ] || [ ! -d "$TRAEFIK_SRC_DIR" ]; then
+    echo "ПРЕДУПРЕЖДЕНИЕ: серверная папка traefik/ не найдена — пропуск"
     exit 0
 fi
+echo "Серверная папка: $SERVER_DIR/traefik/"
 
 # [1/2] Dynamic-конфиги (Traefik подхватывает автоматически)
-DYNAMIC_SRC="$SERVER_CONFIG_DIR/dynamic"
+DYNAMIC_SRC="$TRAEFIK_SRC_DIR/dynamic"
 if [ -d "$DYNAMIC_SRC" ]; then
     echo "Обновление dynamic-конфигов..."
     mkdir -p "$TRAEFIK_DYNAMIC_DIR"
@@ -145,7 +157,7 @@ else
 fi
 
 # [2/2] Static-конфиг (нужен рестарт Traefik при изменении)
-STATIC_SRC="$SERVER_CONFIG_DIR/traefik.yml"
+STATIC_SRC="$TRAEFIK_SRC_DIR/traefik.yml"
 STATIC_TARGET="$TRAEFIK_DIR/traefik.yml"
 
 if [ -f "$STATIC_SRC" ]; then

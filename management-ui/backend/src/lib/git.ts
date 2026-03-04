@@ -1,5 +1,6 @@
+import { resolve } from 'node:path';
 import simpleGit, { type SimpleGit, type StatusResult, type DefaultLogFields, type ListLogLine } from 'simple-git';
-import { getRepoDir } from '../config/env.js';
+import { getRepoDir, getServerConfigDir } from '../config/env.js';
 
 let gitInstance: SimpleGit | null = null;
 
@@ -13,6 +14,22 @@ export function getGit(): SimpleGit {
     gitInstance = simpleGit(repoDir);
   }
   return gitInstance;
+}
+
+let configGitInstance: SimpleGit | null = null;
+
+/**
+ * Get a simple-git instance for the server-configs repository.
+ * The repo root is two levels up from the server config dir (servers/<name>/).
+ */
+export function getConfigGit(): SimpleGit {
+  if (!configGitInstance) {
+    const serverDir = getServerConfigDir();
+    if (!serverDir) throw new Error('Server config directory not found');
+    const repoRoot = resolve(serverDir, '../..');
+    configGitInstance = simpleGit(repoRoot);
+  }
+  return configGitInstance;
 }
 
 export interface GitFileStatus {

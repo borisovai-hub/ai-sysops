@@ -2,15 +2,35 @@
 
 ## Архитектура проекта
 
-- **Management UI** — Express.js сервер (порт 3000), развёртывается в `/opt/management-ui/`
+- **Management UI** — Fastify v5 + React 19 monorepo (порт 3000), развёртывается в `/opt/management-ui/`
 - **Traefik** — reverse proxy, конфиги в `/etc/traefik/dynamic/` (file provider + watch)
 - **GitLab CE** — self-hosted, CI/CD с shell runner
 - **DNS** — управление через CLI `manage-dns` и локальный DNS API (порт 5353)
 - **Основной сайт** — Next.js 16 + Strapi v5 (borisovai-site), деплой в `/var/www/borisovai-site/`
+- **Config Repo** — `tools/server-configs` (отдельный GitLab-репозиторий), стенд-специфичная конфигурация в `/opt/server-configs/`
+
+### Разделение конфигурации
+
+Стенд-специфичная конфигурация (Traefik, DNS, Authelia, RU Proxy) вынесена в отдельный репозиторий `tools/server-configs`:
+
+```
+servers/<server-name>/        # Конфигурация конкретного сервера
+  server.yml                  # Мета: SSH, runner tag, base domain, порты
+  traefik/dynamic/*.yml       # Traefik роутеры и сервисы
+  dns/records.json            # DNS записи (GitOps)
+  authelia/                   # Authelia users
+  ru-proxy/domains.json       # RU Proxy домены
+templates/                    # Шаблоны конфигов с {{placeholder}}
+```
+
+- **CI**: `sync:configs` job клонирует/обновляет config repo в `/opt/server-configs/`
+- **Env vars**: `SERVER_NAME` (имя сервера), `CONFIG_REPO_DIR` (путь к config repo)
+- **Fallback**: Если config repo не найден, скрипты ищут `config/*/` в borisovai-admin (обратная совместимость)
+- **Management UI**: `env.ts` → `findServerConfigDir()` с 4-уровневым fallback
 
 ## Стек и соглашения
 
-- **Management UI**: Node.js, Express, vanilla HTML/CSS/JS (без фреймворков на фронте), axios, yaml, fs-extra
+- **Management UI**: Fastify v5, React 19 + Vite, Drizzle ORM + SQLite, TypeScript monorepo (shared + backend + frontend)
 - **Конфигурация**: JSON файлы в `/etc/management-ui/` (config.json, auth.json, projects.json)
 - **CI-шаблоны**: хранятся в `management-ui/templates/`, при установке копируются в `/opt/management-ui/templates/`
 - **Скрипты**: Bash, совместимы с Debian 11/12 и Ubuntu 20.04/22.04
@@ -39,7 +59,7 @@
 - DNS для `.ru` доменов указывает на **RU Proxy** (82.146.56.174), который проксирует трафик на Contabo
 - Если в Traefik-конфиге нет `.ru` домена — RU Proxy получит 404 от Traefik
 - **При добавлении нового сервиса** — добавить оба домена в Traefik + добавить `.ru` домен в RU Proxy через API или UI
-- Конфиги Traefik хранятся в `config/contabo-sm-139/traefik/dynamic/` и доставляются через CI
+- Конфиги Traefik хранятся в отдельном config repo (`tools/server-configs`) → `servers/<name>/traefik/dynamic/` и доставляются через CI
 
 ### Authelia SSO: чеклист для нового сервиса
 При добавлении нового сервиса за Authelia, обязательно обновить **ВСЕ** точки:

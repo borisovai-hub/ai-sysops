@@ -14,11 +14,7 @@ export const PATHS = {
   DB_FILE: '/var/lib/management-ui/management-ui.db',
   TEMPLATES_DIR: '/opt/management-ui/templates',
   REPO_DIR: '/opt/borisovai-admin',
-  TRAEFIK_REPO_DYNAMIC: '/opt/borisovai-admin/config/contabo-sm-139/traefik/dynamic',
-  DNS_REPO_RECORDS: '/opt/borisovai-admin/config/contabo-sm-139/dns/records.json',
-  AUTHELIA_REPO_USERS: '/opt/borisovai-admin/config/contabo-sm-139/authelia/users_database.yml',
-  AUTHELIA_REPO_MAILBOXES: '/opt/borisovai-admin/config/contabo-sm-139/authelia/user-mailboxes.json',
-  RU_PROXY_REPO_DOMAINS: '/opt/borisovai-admin/config/contabo-sm-139/ru-proxy/domains.json',
+  CONFIG_REPO_DIR: '/opt/server-configs',
 } as const;
 
 // Default port

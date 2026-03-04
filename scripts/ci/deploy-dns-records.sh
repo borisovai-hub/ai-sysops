@@ -17,23 +17,31 @@ if ! curl -sf --max-time 3 "${DNS_API_BASE}/api/records" > /dev/null 2>&1; then
     exit 0
 fi
 
-# Поиск файла records.json в config/<server>/dns/
-RECORDS_FILE=""
-for dir in "$REPO_ROOT"/config/*/dns; do
-    [ ! -d "$dir" ] && continue
-    parent=$(basename "$(dirname "$dir")")
-    [ "$parent" = "single-machine" ] && continue
-    if [ -f "$dir/records.json" ]; then
-        RECORDS_FILE="$dir/records.json"
-        echo "Файл записей: config/$parent/dns/records.json"
-        break
+# Определение серверной конфиг-папки
+_find_server_dir() {
+    if [ -n "$SERVER_CONFIG_DIR" ] && [ -d "$SERVER_CONFIG_DIR" ]; then
+        echo "$SERVER_CONFIG_DIR"; return
     fi
-done
+    local cr="${CONFIG_REPO_DIR:-/opt/server-configs}"
+    local sn="${SERVER_NAME:-contabo-sm-139}"
+    [ -d "$cr/servers/$sn" ] && { echo "$cr/servers/$sn"; return; }
+    for d in "$REPO_ROOT"/config/*/; do
+        [ ! -d "$d" ] && continue
+        local p=$(basename "$d")
+        [ "$p" = "single-machine" ] || [ "$p" = "servers" ] && continue
+        echo "${d%/}"; return
+    done
+    echo ""
+}
 
-if [ -z "$RECORDS_FILE" ]; then
+SERVER_DIR="$(_find_server_dir)"
+RECORDS_FILE="$SERVER_DIR/dns/records.json"
+
+if [ -z "$SERVER_DIR" ] || [ ! -f "$RECORDS_FILE" ]; then
     echo "Файл records.json не найден — пропуск"
     exit 0
 fi
+echo "Файл записей: $RECORDS_FILE"
 
 # Читаем целевые записи из файла
 DESIRED=$(cat "$RECORDS_FILE")

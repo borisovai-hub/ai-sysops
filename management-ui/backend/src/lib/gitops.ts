@@ -1,9 +1,27 @@
-import { relative } from 'node:path';
+import { resolve, relative, normalize } from 'node:path';
 import { PATHS, AppError } from '@management-ui/shared';
-import { getGit } from './git.js';
+import { getGit, getConfigGit } from './git.js';
+import { getServerConfigDir } from '../config/env.js';
 
 /**
- * Commit config changes to the borisovai-admin repo.
+ * Determine which git repo a file belongs to and return the appropriate
+ * simple-git instance + repo root path.
+ */
+function selectRepo(filePath: string): { git: ReturnType<typeof getGit>; root: string } {
+  const serverDir = getServerConfigDir();
+  if (serverDir) {
+    const configRepoRoot = resolve(serverDir, '../..');
+    const normalizedFile = normalize(filePath);
+    const normalizedRoot = normalize(configRepoRoot);
+    if (normalizedFile.startsWith(normalizedRoot)) {
+      return { git: getConfigGit(), root: configRepoRoot };
+    }
+  }
+  return { git: getGit(), root: PATHS.REPO_DIR };
+}
+
+/**
+ * Commit config changes — auto-selects between borisovai-admin and server-configs repo.
  * @param filePaths - absolute paths to changed files
  * @param message - commit message
  */
@@ -11,8 +29,8 @@ export async function commitConfigChange(
   filePaths: string[],
   message: string,
 ): Promise<{ hash: string; summary: string }> {
-  const git = getGit();
-  const relativePaths = filePaths.map((fp) => relative(PATHS.REPO_DIR, fp));
+  const { git, root } = selectRepo(filePaths[0]);
+  const relativePaths = filePaths.map((fp) => relative(root, fp));
   await git.add(relativePaths);
   const result = await git.commit(message);
   return {

@@ -21,6 +21,29 @@ validate:configs:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
+# Клонирование/обновление config repo (server-configs)
+sync:configs:
+  stage: validate
+  tags:
+    - deploy-root
+  script:
+    - |
+      CONFIG_REPO="${CONFIG_REPO_DIR:-/opt/server-configs}"
+      if [ -z "$CONFIG_REPO_URL" ]; then
+        echo "CONFIG_REPO_URL не задан — пропуск sync:configs"
+        exit 0
+      fi
+      if [ -d "$CONFIG_REPO/.git" ]; then
+        echo "Обновление config repo..."
+        cd "$CONFIG_REPO" && git pull --ff-only origin main
+      else
+        echo "Клонирование config repo..."
+        git clone "$CONFIG_REPO_URL" "$CONFIG_REPO"
+      fi
+      echo "Config repo: $(git -C "$CONFIG_REPO" log -1 --oneline)"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
 # Автоматическая установка Docker (для Umami)
 install:docker:
   stage: install
@@ -96,7 +119,7 @@ deploy:
   stage: deploy
   tags:
     - deploy-root
-  needs: [install:docker, install:umami]
+  needs: [install:docker, install:umami, sync:configs]
   script:
     # Рендеринг конфигов из шаблонов + CI Variables
     - bash scripts/ci/render-configs.sh
