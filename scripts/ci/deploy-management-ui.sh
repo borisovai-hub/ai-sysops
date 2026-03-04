@@ -82,11 +82,21 @@ rm -f shared/tsconfig.tsbuildinfo backend/tsconfig.tsbuildinfo frontend/tsconfig
 echo "Сборка monorepo (shared -> frontend -> backend)..."
 npm run build
 
+# --- Создание system user (до всех chown операций) ---
+if ! id -u management-ui > /dev/null 2>&1; then
+    echo "Создание пользователя management-ui..."
+    adduser --system --no-create-home --group management-ui 2>/dev/null || true
+fi
+
 # --- Подготовка БД ---
 echo "Подготовка каталога БД..."
 mkdir -p "$DB_DIR"
-chown -R management-ui:management-ui "$DB_DIR" 2>/dev/null || true
+chown -R management-ui:management-ui "$DB_DIR"
 # Миграции применятся автоматически при старте (initDb → migrate)
+
+# Права на директории
+chown -R management-ui:management-ui "$APP_DIR"
+chown -R management-ui:management-ui "$CONFIG_DIR" 2>/dev/null || true
 
 # --- Обновление systemd ---
 CURRENT_EXEC=$(grep -oP 'ExecStart=\K.*' /etc/systemd/system/management-ui.service 2>/dev/null || echo "")
@@ -106,16 +116,6 @@ if grep -q '^\[Service\]' /etc/systemd/system/management-ui.service 2>/dev/null 
    grep -A20 '^\[Service\]' /etc/systemd/system/management-ui.service 2>/dev/null | grep -q 'StartLimitIntervalSec'; then
     NEED_SYSTEMD_UPDATE=true
 fi
-
-# Создание system user если не существует
-if ! id -u management-ui > /dev/null 2>&1; then
-    echo "Создание пользователя management-ui..."
-    adduser --system --no-create-home --group management-ui 2>/dev/null || true
-fi
-
-# Права на директории для нового пользователя
-chown -R management-ui:management-ui "$APP_DIR" 2>/dev/null || true
-chown -R management-ui:management-ui "$CONFIG_DIR" 2>/dev/null || true
 
 if [ "$NEED_SYSTEMD_UPDATE" = true ] && [ -f /etc/systemd/system/management-ui.service ]; then
     echo "Обновление systemd service (monorepo entry point)..."
