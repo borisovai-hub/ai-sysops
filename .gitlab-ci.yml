@@ -35,6 +35,7 @@ sync:configs:
       fi
       if [ -d "$CONFIG_REPO/.git" ]; then
         echo "Обновление config repo..."
+        git -C "$CONFIG_REPO" remote set-url origin "$CONFIG_REPO_URL"
         cd "$CONFIG_REPO" && git pull --ff-only origin main
       else
         echo "Клонирование config repo..."
