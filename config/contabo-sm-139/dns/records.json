@@ -1,0 +1,16 @@
+[
+  {
+    "id": "88ec0c06",
+    "subdomain": "test",
+    "domain": "borisovai.ru",
+    "type": "A",
+    "ip": "109.120.142.27"
+  },
+  {
+    "id": "06e72bc6",
+    "subdomain": "test",
+    "domain": "borisovai.tech",
+    "type": "A",
+    "ip": "109.120.142.27"
+  }
+]

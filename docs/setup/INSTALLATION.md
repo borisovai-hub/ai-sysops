@@ -1,395 +1,190 @@
-# Инструкция по установке GitLab, Traefik и системы управления
+# Инструкция по установке
 
 ## Обзор
 
-Этот проект содержит скрипты для установки и настройки:
-- **GitLab CE** на отдельной VM (VM 2)
-- **Traefik** как входящего прокси-сервера на отдельной VM (VM 1)
-- **Веб-интерфейс управления** для добавления новых сервисов
-- **DNS API интеграция** для автоматического управления поддоменами
-- **Let's Encrypt** для автоматических SSL сертификатов
+Проект содержит скрипты для установки и настройки:
+- **GitLab CE** — self-hosted Git и CI/CD
+- **Traefik** — reverse proxy с автоматическим Let's Encrypt
+- **Management UI** — веб-интерфейс управления инфраструктурой (monorepo: Fastify + React)
+- **DNS API** — автоматическое управление поддоменами
+- **Authelia** — SSO (ForwardAuth middleware для Traefik)
 
 ## Архитектура
 
-**Для одной физической машины:**
-
 ```
-Физическая машина (Proxmox)
-├── VM 1 (Traefik) - 192.168.1.101/24
-│   ├── Traefik (порты 80/443) - внешний доступ
-│   ├── Веб-интерфейс управления
-│   ├── DNS API клиент
-│   └── Let's Encrypt
-└── VM 2 (GitLab) - 192.168.1.102/24
-    └── GitLab CE (порт 80) - доступен только из локальной сети
-    
-Все VM в одной подсети, используют один мост vmbr0
-Traefik проксирует запросы к GitLab по локальному IP
+Сервер (Contabo / single machine)
+├── Traefik (порты 80/443) — reverse proxy, Let's Encrypt
+├── Management UI (порт 3000) — Fastify v5 backend + React 19 frontend
+├── GitLab CE — Git, CI/CD, shell runner
+├── DNS API (порт 5353) — управление DNS-записями
+├── Authelia (порт 9091) — SSO, ForwardAuth
+├── Umami (порт 3001) — веб-аналитика (Docker)
+├── n8n — автоматизации (Docker)
+└── frps — self-hosted туннели
 ```
 
 ## Требования
 
-### VM 1 (Traefik)
-- **ОС**: Debian 11/12 или Ubuntu 20.04/22.04
-- **RAM**: минимум 2GB (рекомендуется 4GB)
-- **CPU**: минимум 2 ядра
-- **Диск**: минимум 20GB
-- **Сеть**: внешний IP адрес, доступ к портам 80 и 443
-
-### VM 2 (GitLab)
 - **ОС**: Debian 11/12 или Ubuntu 20.04/22.04
 - **RAM**: минимум 4GB (рекомендуется 8GB)
 - **CPU**: минимум 4 ядра
-- **Диск**: минимум 50GB (рекомендуется 100GB)
-- **Сеть**: внутренний IP адрес, доступен из VM 1
-
-### Дополнительно
-- Домен с возможностью управления DNS через API (Cloudflare, DigitalOcean)
-- Email для Let's Encrypt сертификатов
+- **Диск**: минимум 50GB
+- **Node.js**: 20+ (для Management UI и DNS API)
+- **Домен** с DNS API (Cloudflare)
+- **Email** для Let's Encrypt
 
 ## Порядок установки
 
-### Шаг 0: Настройка Proxmox VE 7
+### Шаг 1: Установка GitLab CE
 
-**ВАЖНО**: Перед установкой сервисов необходимо настроить Proxmox.
-
-См. подробную инструкцию: [PROXMOX_SETUP.md](PROXMOX_SETUP.md)
-
-Кратко (для одной физической машины):
-1. Установите Proxmox VE 7 на сервер
-2. Настройте сеть (один мост `vmbr0` - достаточно для одной физической машины)
-3. Создайте две VM:
-   - VM 1 (Traefik): 2GB RAM, 2 CPU, 20GB диск
-   - VM 2 (GitLab): 4GB RAM, 4 CPU, 50GB диск
-4. Установите Debian/Ubuntu на обе VM
-5. Настройте сеть на VM в одной подсети (например, `192.168.1.101` и `192.168.1.102`)
-6. Запишите IP адреса обеих VM
-
-### Шаг 1: Подготовка виртуальных машин
-
-#### Проверка сетевой связности
-
-**Для одной физической машины** - обе VM должны быть в одной подсети:
-
-На VM 1 выполните:
 ```bash
-# Проверка IP адреса
-ip addr show
-
-# Проверка связи с VM 2
-ping <IP_VM2>  # например, ping 192.168.1.102
-
-# Проверка связи с Proxmox
-ping <IP_PROXMOX>  # например, ping 192.168.1.100
+chmod +x scripts/single-machine/install-gitlab.sh
+sudo ./scripts/single-machine/install-gitlab.sh
 ```
 
-На VM 2 выполните:
+Скрипт запросит домен для GitLab (например, `gitlab.dev.borisovai.ru`).
+
+После установки:
+- Сохраните начальный пароль root
+- Создайте Personal Access Token (api scope) для CI/CD интеграции
+
+### Шаг 2: Установка Traefik
+
 ```bash
-# Проверка IP адреса
-ip addr show
-
-# Проверка связи с VM 1
-ping <IP_VM1>  # например, ping 192.168.1.101
-
-# Проверка связи с Proxmox
-ping <IP_PROXMOX>  # например, ping 192.168.1.100
+chmod +x scripts/single-machine/install-traefik.sh
+sudo ./scripts/single-machine/install-traefik.sh
 ```
 
-**Важно**: Если ping не работает, проверьте:
-- Что обе VM в одной подсети
-- Что firewall не блокирует ICMP
-- Настройки сети в Proxmox
-
-### Шаг 2: Установка GitLab на VM 2
-
-1. Подключитесь к VM 2 по SSH
-
-2. Загрузите скрипт установки:
+Проверка:
 ```bash
-# Скопируйте файл scripts/vm2-gitlab/install-gitlab.sh на сервер
-# Или создайте его вручную
+systemctl status traefik
 ```
 
-3. Сделайте скрипт исполняемым:
+Динамические конфиги генерируются через `configure-traefik.sh` (см. ниже).
+
+### Шаг 3: Настройка DNS API
+
 ```bash
-chmod +x install-gitlab.sh
+chmod +x scripts/single-machine/install-dns-api.sh
+sudo ./scripts/single-machine/install-dns-api.sh
 ```
 
-4. Запустите установку:
-```bash
-sudo ./install-gitlab.sh
-```
-
-Скрипт запросит:
-- Внутренний IP адрес Traefik VM (VM 1)
-- Домен для GitLab (например, `gitlab.example.com`)
-
-5. После установки:
-   - Сохраните начальный пароль root (отображается в конце установки)
-   - Проверьте доступность GitLab:
-     ```bash
-     curl http://<INTERNAL_IP_VM2>
-     ```
-
-### Шаг 3: Установка Traefik на VM 1
-
-1. Подключитесь к VM 1 по SSH
-
-2. Загрузите скрипт установки:
-```bash
-# Скопируйте файл scripts/vm1-traefik/install-traefik.sh на сервер
-```
-
-3. Сделайте скрипт исполняемым:
-```bash
-chmod +x install-traefik.sh
-```
-
-4. Запустите установку:
-```bash
-sudo ./install-traefik.sh
-```
-
-Скрипт запросит:
-- IP адрес GitLab VM (VM 2) - например, `192.168.1.102` (для одной физической машины это IP в той же подсети)
-- Домен для GitLab
-- Email для Let's Encrypt
-
-5. После установки:
-   - Проверьте статус Traefik:
-     ```bash
-     systemctl status traefik
-     ```
-   - Проверьте доступность GitLab через домен:
-     ```bash
-     curl -I https://gitlab.example.com
-     ```
-
-### Шаг 4: Настройка DNS API
-
-1. На VM 1 запустите скрипт настройки DNS API:
-```bash
-sudo ./setup-dns-api.sh
-```
-
-2. Выберите провайдера (Cloudflare или DigitalOcean)
-
-3. Введите необходимые данные:
-   - **Cloudflare**: API Token, Zone ID, домен
-   - **DigitalOcean**: API Token, домен
-
-4. Проверьте подключение:
+Проверка:
 ```bash
 manage-dns test
 ```
 
-### Шаг 5: Установка веб-интерфейса управления
+### Шаг 4: Установка Management UI
 
-1. На VM 1 скопируйте директорию `management-ui` в `/opt/management-ui`
+Management UI — monorepo с тремя пакетами:
 
-2. Запустите скрипт установки:
+| Пакет | Стек | Описание |
+|-------|------|----------|
+| `shared/` | TypeScript | Общие типы, схемы, утилиты |
+| `backend/` | Fastify v5, Drizzle ORM, SQLite | API сервер (порт 3000) |
+| `frontend/` | React 19, Vite, Tailwind v4 | SPA (собирается и раздаётся backend) |
+
+**Установка:**
 ```bash
-sudo ./install-management-ui.sh
+chmod +x scripts/single-machine/install-management-ui.sh
+sudo ./scripts/single-machine/install-management-ui.sh
 ```
 
-3. Настройте Traefik для проксирования веб-интерфейса:
+Скрипт выполняет:
+1. Копирует `management-ui/` в `/opt/management-ui/`
+2. Запускает `npm ci && npm run build` (собирает shared, backend, frontend)
+3. Создаёт конфиги `/etc/management-ui/config.json` и `auth.json` (при первой установке)
+4. Создаёт systemd-сервис `management-ui`
+5. База данных SQLite: `/var/lib/management-ui/management-ui.db` (автомиграция при старте через Drizzle)
+
+**Systemd-сервис** запускает:
 ```bash
-# Создайте конфигурацию для веб-интерфейса
-sudo nano /etc/traefik/dynamic/management-ui.yml
+node /opt/management-ui/backend/dist/index.js
 ```
 
-Добавьте:
-```yaml
-http:
-  routers:
-    management-ui:
-      rule: "Host(`manage.example.com`)"
-      service: management-ui
-      entryPoints:
-        - websecure
-      tls:
-        certResolver: letsencrypt
+**Конфигурация:**
+- `/etc/management-ui/config.json` — GitLab URL/token, Strapi URL/token, порты, пути
+- `/etc/management-ui/auth.json` — пароль и bearer-токены (создаётся один раз, не перезаписывается)
 
-  services:
-    management-ui:
-      loadBalancer:
-        servers:
-          - url: "http://localhost:3000"
-```
+**Порт**: 3000 (проксируется через Traefik на `admin.borisovai.ru` / `admin.borisovai.tech`)
 
-4. Создайте DNS запись для веб-интерфейса:
+**Обновление** (переустановка без потери данных):
 ```bash
-manage-dns create manage <EXTERNAL_IP>
+sudo ./scripts/single-machine/install-management-ui.sh --force
 ```
+Флаг `--force` обновляет файлы приложения, но сохраняет `auth.json`, `config.json` и БД.
 
-5. Перезагрузите Traefik:
+Проверка:
 ```bash
-sudo systemctl reload traefik
+systemctl status management-ui
+curl http://localhost:3000/api/health
 ```
 
-6. Откройте веб-интерфейс в браузере:
-```
-https://manage.example.com
-```
-
-## Использование
-
-### Добавление нового сервиса через веб-интерфейс
-
-1. Откройте веб-интерфейс управления
-2. Нажмите "Добавить сервис"
-3. Заполните форму:
-   - Имя сервиса
-   - Внутренний IP адрес
-   - Порт
-   - Домен (опционально)
-4. Нажмите "Создать"
-
-Сервис будет автоматически:
-- Добавлен в DNS
-- Настроен в Traefik
-- Получит SSL сертификат от Let's Encrypt
-
-### Добавление сервиса через командную строку
+### Шаг 5: Генерация Traefik-конфигов
 
 ```bash
-sudo ./deploy-service.sh <service-name> <internal-ip> <port> [domain]
+chmod +x scripts/single-machine/configure-traefik.sh
+sudo ./scripts/single-machine/configure-traefik.sh
 ```
 
-Пример:
-```bash
-sudo ./deploy-service.sh app1 192.168.1.100 8080
-```
+Генерирует YAML для всех сервисов в `/etc/traefik/dynamic/` с двумя базовыми доменами (.ru и .tech).
 
-### Управление DNS записями
+### Шаг 6: Установка Authelia (опционально)
 
 ```bash
-# Создать DNS запись
-manage-dns create <subdomain> <ip>
-
-# Удалить DNS запись
-manage-dns delete <subdomain>
-
-# Проверить подключение к API
-manage-dns test
+chmod +x scripts/single-machine/install-authelia.sh
+sudo ./scripts/single-machine/install-authelia.sh
 ```
+
+Защищает Management UI, n8n, Mailu, Umami через ForwardAuth middleware.
 
 ## Проверка и диагностика
 
-### Проверка статуса сервисов
-
 ```bash
-# Traefik
-systemctl status traefik
-journalctl -u traefik -f
+# Все сервисы
+systemctl status traefik management-ui authelia
 
 # GitLab
-systemctl status gitlab-runsvdir
 gitlab-ctl status
 
-# Веб-интерфейс управления
-systemctl status management-ui
+# Логи
 journalctl -u management-ui -f
-```
+journalctl -u traefik -f
 
-### Проверка конфигурации Traefik
-
-```bash
-# Просмотр конфигурации
-traefik version
-cat /etc/traefik/traefik.yml
-
-# Просмотр динамических конфигураций
+# Traefik конфиги
 ls -la /etc/traefik/dynamic/
-```
 
-### Проверка SSL сертификатов
-
-```bash
-# Просмотр сертификатов
-ls -la /var/lib/traefik/acme/
-
-# Проверка сертификата через браузер
-# Откройте https://your-domain.com и проверьте сертификат
+# Management UI БД
+ls -la /var/lib/management-ui/management-ui.db
 ```
 
 ## Решение проблем
 
-### GitLab недоступен через Traefik
-
-1. Проверьте доступность GitLab по внутреннему IP:
-   ```bash
-   curl http://<GITLAB_IP>
-   ```
-
-2. Проверьте конфигурацию Traefik:
-   ```bash
-   cat /etc/traefik/dynamic/gitlab.yml
-   ```
-
-3. Проверьте логи Traefik:
-   ```bash
-   journalctl -u traefik -n 100
-   ```
+### Management UI не запускается
+```bash
+journalctl -u management-ui -n 50
+# Проверьте что БД доступна
+ls -la /var/lib/management-ui/
+# Проверьте конфиг
+cat /etc/management-ui/config.json
+```
 
 ### SSL сертификат не получается
-
-1. Проверьте доступность домена извне:
-   ```bash
-   curl -I http://your-domain.com
-   ```
-
-2. Проверьте права доступа к файлу acme.json:
-   ```bash
-   ls -la /var/lib/traefik/acme/acme.json
-   ```
-
-3. Проверьте логи Traefik на ошибки Let's Encrypt
+```bash
+journalctl -u traefik | grep -i acme
+ls -la /var/lib/traefik/acme/acme.json
+```
 
 ### DNS записи не создаются
-
-1. Проверьте конфигурацию DNS API:
-   ```bash
-   cat /etc/dns-api/config.json
-   ```
-
-2. Проверьте подключение к API:
-   ```bash
-   manage-dns test
-   ```
-
-3. Проверьте права доступа к конфигурации:
-   ```bash
-   ls -la /etc/dns-api/config.json
-   ```
+```bash
+manage-dns test
+cat /etc/dns-api/config.json
+```
 
 ## Безопасность
 
-### Рекомендации
-
-1. **Firewall**: Настройте UFW на обеих VM
-   ```bash
-   # VM 1: открыть только 80, 443
-   # VM 2: открыть только 80 для внутренней сети
-   ```
-
-2. **Traefik Dashboard**: Ограничьте доступ к dashboard
-   - Используйте базовую аутентификацию
-   - Или ограничьте доступ по IP
-
-3. **API ключи**: Храните API ключи в безопасном месте
-   - Не коммитьте в git
-   - Используйте переменные окружения
-
-4. **Регулярные обновления**:
-   ```bash
-   apt update && apt upgrade -y
-   ```
-
-## Поддержка
-
-При возникновении проблем:
-1. Проверьте логи сервисов
-2. Проверьте конфигурационные файлы
-3. Убедитесь в правильности сетевых настроек
-4. Проверьте доступность всех компонентов
+1. **Authelia SSO**: Все административные сервисы защищены двухфакторной аутентификацией
+2. **Bearer-токены**: API Management UI требует авторизацию (auth.json)
+3. **Firewall**: Настройте UFW — открыть только 80 и 443
+4. **Обновления**: `apt update && apt upgrade -y`
+5. **Секреты**: GitLab CI Variables (masked) для GITLAB_TOKEN, STRAPI_TOKEN

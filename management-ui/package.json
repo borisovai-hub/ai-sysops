@@ -1,20 +1,29 @@
 {
   "name": "management-ui",
-  "version": "1.0.0",
-  "description": "Web interface for managing services and DNS",
-  "main": "server.js",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Web interface for managing services, DNS, projects, and infrastructure",
+  "workspaces": [
+    "shared",
+    "backend",
+    "frontend"
+  ],
   "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "axios": "^1.6.0",
-    "body-parser": "^1.20.2",
-    "express": "^4.18.2",
-    "fs-extra": "^11.1.1",
-    "multer": "^1.4.5-lts.1",
-    "yaml": "^2.3.2"
+    "dev": "npm run build -w shared && concurrently -n back,front -c blue,green \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "dev:backend": "npm run build -w shared && npm run dev -w backend",
+    "dev:frontend": "npm run dev -w frontend",
+    "build": "npm run build -w shared && npm run build -w frontend && npm run build -w backend",
+    "build:shared": "npm run build -w shared",
+    "start": "npm run start -w backend",
+    "start:legacy": "node server.js",
+    "typecheck": "npm run build -w shared && tsc --noEmit -p backend && tsc --noEmit -p frontend",
+    "db:generate": "npm run db:generate -w backend",
+    "db:migrate": "npm run db:migrate -w backend"
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }

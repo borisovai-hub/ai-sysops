@@ -1,42 +1,88 @@
 # Инструкция для агента: регистрация проектов (One-Click Publish)
 
-Руководство для агента по регистрации новых проектов через Management UI API. Оркестратор автоматически настраивает DNS, Traefik, CI/CD и Strapi в зависимости от типа проекта.
+Руководство для AI-агента по регистрации и публикации проектов через Management UI API (Fastify, порт 3000). Оркестратор автоматически настраивает DNS, Traefik, CI/CD, директории и Strapi в зависимости от типа проекта.
 
-## Подключение
+## 1. Подключение
 
 ```
-Base URL:  https://admin.borisovai.ru  или  https://admin.borisovai.tech  (или http://127.0.0.1:3000 с сервера)
-Auth:      Bearer-токен (рекомендуется) или Cookie-сессия
+Base URL:  https://admin.borisovai.ru  или  https://admin.borisovai.tech
+           http://127.0.0.1:3000  (с сервера)
+Формат:    Content-Type: application/json
 ```
 
-**Мульти-домен**: если домен не указан явно, оркестратор генерирует домены для всех `base_domains` из `/etc/install-config.json`. Например, для slug `my-app` создаются `my-app.borisovai.ru` и `my-app.borisovai.tech`. Traefik и DNS настраиваются для всех доменов автоматически.
+### Аутентификация
 
-## Аутентификация
+Два метода (cookie-сессии убраны):
 
-### Bearer-токен (рекомендуется для агентов)
+| Метод | Заголовок | Когда использовать |
+|-------|-----------|-------------------|
+| **Bearer-токен** | `Authorization: Bearer <токен>` | Агенты, скрипты, CI |
+| **Authelia ForwardAuth** | `Remote-User: admin` (проставляет Traefik) | Браузер через SSO |
 
-Токены создаются администратором в UI (страница "Токены") или через API `POST /api/auth/tokens`.
+Токены создаются в UI (страница "Токены") или через `POST /api/auth/tokens`.
 
 ```bash
-# Все запросы с заголовком Authorization
-curl -H "Authorization: Bearer <токен>" http://127.0.0.1:3000/api/publish/projects
+# Проверить аутентификацию
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/api/publish/config
 ```
 
-### Cookie-сессия (альтернативный способ)
+**Мульти-домен**: если домен не указан явно, оркестратор генерирует домены для всех `base_domains` из `/etc/install-config.json`. Для slug `my-app` создаются `my-app.borisovai.ru` и `my-app.borisovai.tech`.
+
+## 2. Быстрый старт
 
 ```bash
-# Получить сессию
-curl -c cookies.txt -X POST http://127.0.0.1:3000/login \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "password=<пароль из /etc/management-ui/auth.json>"
+TOKEN="ваш-bearer-токен"
 
-# Все дальнейшие запросы с -b cookies.txt
+curl -X POST http://127.0.0.1:3000/api/publish/projects \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "gitlabProjectId": 5,
+    "slug": "my-app",
+    "projectType": "deploy",
+    "appType": "frontend",
+    "title": "My Application"
+  }'
 ```
 
-## Быстрый старт: зарегистрировать проект
+API принимает оба стиля именования полей:
+
+| Каноническое | Альтернативное | Описание |
+|-------------|----------------|----------|
+| `gitlabProjectId` (число) | `gitlabProject` (строка `"group/name"` или число) | ID или путь проекта в GitLab |
+| `projectType` | `type` | Тип проекта |
+
+Если передан `gitlabProject` как строка вида `"group/name"`, API автоматически резолвит его в числовой ID через GitLab API.
+
+## 3. API endpoints
+
+Все endpoints требуют авторизации (Bearer или Authelia).
+
+### GET /api/publish/config
+
+Конфигурация оркестратора.
 
 ```bash
-curl -H "Authorization: Bearer <токен>" -X POST http://127.0.0.1:3000/api/publish/projects \
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/api/publish/config
+```
+
+Ответ: `baseDomain`, `baseDomains` (массив), `runnerTag`, `gitlabConfigured`, `strapiConfigured`.
+
+### GET /api/publish/projects
+
+Список зарегистрированных проектов.
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/api/publish/projects
+```
+
+### POST /api/publish/projects
+
+Зарегистрировать (опубликовать) проект. Основной endpoint оркестратора.
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/publish/projects \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "gitlabProjectId": 5,
@@ -44,94 +90,138 @@ curl -H "Authorization: Bearer <токен>" -X POST http://127.0.0.1:3000/api/p
     "projectType": "deploy",
     "appType": "frontend",
     "title": "My Application",
-    "description": "Описание проекта"
+    "description": "Описание проекта",
+    "authelia": true,
+    "force": false
   }'
 ```
 
-## Типы проектов (`projectType`)
+| Параметр | Тип | Обязательный | Описание |
+|----------|-----|-------------|----------|
+| `slug` | string | да | Уникальный идентификатор (строчные буквы, цифры, дефисы) |
+| `gitlabProjectId` | number | да* | ID проекта в GitLab |
+| `gitlabProject` | string/number | да* | Путь `"group/name"` или ID (альтернатива `gitlabProjectId`) |
+| `projectType` | string | да* | `deploy`, `docs`, `infra`, `product` |
+| `type` | string | да* | Альтернатива `projectType` |
+| `appType` | string | нет | `frontend` (по умолчанию), `backend`, `fullstack` |
+| `title` | string | да | Название проекта |
+| `description` | string | нет | Описание |
+| `authelia` | boolean | нет | Добавить Authelia middleware в Traefik (по умолчанию `true`) |
+| `force` | boolean | нет | Перерегистрировать если slug уже существует |
 
-### deploy — веб-приложение с деплоем
+*Обязательно одно из пары: `gitlabProjectId` или `gitlabProject`; `projectType` или `type`.
 
-Полный цикл: DNS → Traefik → CI/CD → директории → CI переменные.
+### DELETE /api/publish/projects/:slug
 
-| Параметр | Обязательный | Описание |
-|----------|-------------|----------|
-| `gitlabProjectId` | да | ID проекта в GitLab |
-| `slug` | да | Уникальный идентификатор (латиница, дефисы) |
-| `projectType` | да | `"deploy"` |
-| `appType` | нет | `"frontend"` (по умолчанию), `"backend"`, `"fullstack"` |
-| `domain` | нет | Домен (по умолчанию: `<slug>.<base_domain>`) |
-| `title` | нет | Название (по умолчанию: slug) |
-| `description` | нет | Описание |
+Удалить проект из реестра + откатить DNS, Traefik, CI файлы. Директории остаются.
+
+```bash
+curl -X DELETE -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:3000/api/publish/projects/my-app
+```
+
+### PUT /api/publish/projects/:slug/retry
+
+Повторить неуспешные шаги (status: "partial").
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:3000/api/publish/projects/my-app/retry
+```
+
+### PUT /api/publish/projects/:slug/update-ci
+
+Перегенерировать CI файлы из актуального шаблона.
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:3000/api/publish/projects/my-app/update-ci
+```
+
+### POST /api/publish/projects/:slug/release
+
+Записать релиз (webhook из CI или вручную). Обновляет Strapi как draft.
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/publish/projects/my-app/release \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "version": "v1.2.0",
+    "downloadUrl": "/downloads/my-app/v1.2.0/",
+    "changelog": "Описание изменений",
+    "source": "agent"
+  }'
+```
+
+| Параметр | Тип | Обязательный | Описание |
+|----------|-----|-------------|----------|
+| `version` | string | да | Версия (например `v1.2.0`) |
+| `downloadUrl` | string | нет | URL загрузки |
+| `changelog` | string | нет | Описание изменений |
+| `source` | string | нет | `ci`, `agent`, `admin`, `unknown` (по умолчанию `admin`) |
+| `action` | string | нет | `release`, `publish`, `unpublish` (по умолчанию `release`) |
+
+### GET /api/publish/projects/:slug/releases
+
+История релизов проекта.
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:3000/api/publish/projects/my-app/releases
+```
+
+## 4. Типы проектов
+
+### deploy -- веб-приложение с деплоем
+
+Полный цикл: DNS + Traefik + директории + CI/CD + CI переменные.
+
+Шаблон CI зависит от `appType`: `frontend` / `backend` / `fullstack`.
 
 **Что делает оркестратор:**
+1. **DNS** -- A-запись `<slug>` для всех base_domains
+2. **Traefik** -- конфиг `/etc/traefik/dynamic/<slug>.yml` (с `authelia@file` если `authelia: true`)
+3. **Директории** -- `mkdir -p /var/www/<slug>`, chown gitlab-runner
+4. **CI** -- пушит `.gitlab-ci.yml` + `.gitlab/ci/pipeline.yml` в GitLab
+5. **CI переменные** -- `DEPLOY_PATH`, `PM2_APP_NAME`
+6. **Порт** -- автоматически выделяется начиная с `base_port`
 
-1. **DNS** — создаёт A-запись `<slug>` → внешний IP сервера
-2. **Traefik** — создаёт конфиг `/etc/traefik/dynamic/<slug>.yml` с роутером и сервисом
-3. **Директории** — `mkdir -p /var/www/<slug>`, chown gitlab-runner
-4. **CI файлы** — пушит `.gitlab-ci.yml` + `.gitlab/ci/pipeline.yml` в GitLab-репозиторий
-5. **CI переменные** — устанавливает `DEPLOY_PATH`, `PM2_APP_NAME` в GitLab
-6. **Порт** — автоматически выделяет порт (начиная с `base_port` из config.json)
-
-**Шаблон CI**: зависит от `appType`:
-- `frontend` → `frontend.gitlab-ci.yml`
-- `backend` → `backend.gitlab-ci.yml`
-- `fullstack` → `fullstack.gitlab-ci.yml`
-
-### docs — документация
+### docs -- документация
 
 Strapi + CI/CD для статической документации.
 
-| Параметр | Обязательный | Описание |
-|----------|-------------|----------|
-| `gitlabProjectId` | да | ID проекта в GitLab |
-| `slug` | да | Уникальный идентификатор |
-| `projectType` | да | `"docs"` |
-| `title` | нет | Название |
-| `description` | нет | Описание |
+**Шаги:** Strapi запись + директории (`/var/www/docs/<slug>`) + CI файлы + CI переменные (`DOCS_DEPLOY_PATH`, `PROJECT_SLUG`, `MANAGEMENT_UI_URL`, `MANAGEMENT_UI_TOKEN`).
 
-**Что делает:**
+### infra -- инфраструктурный проект
 
-1. **Strapi** — создаёт/обновляет запись проекта в Strapi
-2. **Директории** — `mkdir -p /var/www/docs/<slug>`
-3. **CI файлы** — пушит пайплайн с шаблоном `docs.gitlab-ci.yml`
-4. **CI переменные** — `DOCS_DEPLOY_PATH`
+Только CI/CD (валидация, линтинг). Strapi опционально (если настроен).
 
-### infra — инфраструктурный проект
+**Шаги:** CI файлы (шаблон `validate.gitlab-ci.yml`) + Strapi запись (опционально).
 
-Только CI/CD (валидация, линтинг), опционально Strapi.
+### product -- продукт с загрузками
 
-| Параметр | Обязательный | Описание |
-|----------|-------------|----------|
-| `gitlabProjectId` | да | ID проекта в GitLab |
-| `slug` | да | Уникальный идентификатор |
-| `projectType` | да | `"infra"` |
+Strapi + CI/CD + директория загрузок.
 
-**Что делает:**
+**Шаги:** Strapi запись + директории (`/var/www/downloads/<slug>`) + CI файлы + CI переменные (`MANAGEMENT_UI_URL`, `MANAGEMENT_UI_TOKEN`, `PROJECT_SLUG`, `DOWNLOADS_PATH`).
 
-1. **CI файлы** — пушит пайплайн с шаблоном `validate.gitlab-ci.yml`
-2. **Strapi** — создаёт запись (если Strapi настроен)
+## 5. Шаги оркестратора
 
-### product — продукт с загрузками
+При регистрации `deploy`-проекта оркестратор выполняет до 5 шагов последовательно:
 
-Strapi + CI/CD + директория загрузок + переменные для Strapi API.
+| Шаг | Что делает | Где хранится |
+|-----|-----------|-------------|
+| `dns` | A-запись через DNS API (порт 5353) | `/etc/management-ui/records.json` |
+| `traefik` | YAML-конфиг роутера + сервиса | `/etc/traefik/dynamic/<slug>.yml` |
+| `directories` | `mkdir -p` + `chown gitlab-runner` | `/var/www/<slug>/` |
+| `ci` | Пуш `.gitlab-ci.yml` + `.gitlab/ci/pipeline.yml` через GitLab Repository Files API | Целевой GitLab-репозиторий |
+| `variables` | CI-переменные через GitLab API | GitLab CI/CD Variables |
 
-| Параметр | Обязательный | Описание |
-|----------|-------------|----------|
-| `gitlabProjectId` | да | ID проекта в GitLab |
-| `slug` | да | Уникальный идентификатор |
-| `projectType` | да | `"product"` |
-| `title` | нет | Название |
-| `description` | нет | Описание |
+Если `authelia: true` (по умолчанию), в Traefik-конфиг добавляется middleware `authelia@file`.
 
-**Что делает:**
+Каждый шаг независим -- при ошибке одного остальные продолжаются. Частичный результат сохраняется в реестр (`status: "partial"`).
 
-1. **Strapi** — создаёт/обновляет запись проекта
-2. **Директории** — `mkdir -p /var/www/downloads/<slug>`
-3. **CI файлы** — пушит пайплайн с шаблоном `product.gitlab-ci.yml`
-4. **CI переменные** — `STRAPI_API_URL`, `STRAPI_API_TOKEN` (masked), `PROJECT_SLUG`, `DOWNLOADS_PATH`
-
-## Ответ API
+## 6. Ответ API
 
 ```json
 {
@@ -144,322 +234,102 @@ Strapi + CI/CD + директория загрузок + переменные д
     "domain": "my-app.borisovai.ru,my-app.borisovai.tech",
     "title": "My Application",
     "description": "",
+    "authelia": true,
     "pathWithNamespace": "group/my-app",
     "defaultBranch": "main",
-    "createdAt": "2026-02-04T12:00:00.000Z",
     "ports": { "frontend": 4010 },
+    "status": "ok",
     "steps": {
       "dns": { "done": true, "detail": "A запись my-app создана" },
       "traefik": { "done": true, "detail": "Конфиг создан" },
       "directories": { "done": true, "detail": "/var/www/my-app" },
       "ci": { "done": true, "detail": "CI файлы загружены" },
       "variables": { "done": true, "detail": "DEPLOY_PATH, PM2_APP_NAME" }
-    }
+    },
+    "createdAt": "2026-03-04T12:00:00.000Z"
   }
 }
 ```
 
-Каждый шаг (`steps`) содержит `done: true/false`. При ошибке — `error` с описанием. Частичный успех возможен: проект сохраняется в реестр даже если часть шагов не выполнилась.
+- `status`: `"ok"` -- все шаги выполнены, `"partial"` -- есть ошибки.
+- В `steps` каждый шаг содержит `done: true/false`. При ошибке -- `error` с описанием.
+- Данные проектов хранятся в `/etc/management-ui/projects.json` (JSON-файл, не БД).
 
-## Другие endpoints
+## 7. Релизы и версионирование
 
-### Получить список зарегистрированных проектов
+Агент **не обновляет Strapi напрямую**. Все обновления проходят через release endpoint.
 
-```bash
-curl -b cookies.txt http://127.0.0.1:3000/api/publish/projects
-```
-
-### Получить конфигурацию оркестратора
-
-```bash
-curl -b cookies.txt http://127.0.0.1:3000/api/publish/config
-```
-
-Ответ: `baseDomain`, `baseDomains` (массив), `runnerTag`, `gitlabConfigured`, `strapiConfigured`.
-
-### Получить список проектов GitLab
-
-```bash
-curl -b cookies.txt http://127.0.0.1:3000/api/gitlab/projects
-```
-
-### Удалить проект из реестра
-
-```bash
-curl -b cookies.txt -X DELETE http://127.0.0.1:3000/api/publish/projects/my-app
-```
-
-> Удаляет запись из реестра + откатывает: DNS записи, Traefik конфиг, CI файлы из GitLab (`.gitlab-ci.yml`, `.gitlab/ci/pipeline.yml`). Директории на сервере остаются.
-
-### Обновить CI файлы проекта
-
-```bash
-curl -b cookies.txt -X PUT http://127.0.0.1:3000/api/publish/projects/my-app/update-ci
-```
-
-Перегенерирует и пушит CI файлы из актуального шаблона.
-
-## Предусловия
-
-Перед использованием оркестратора на сервере должны быть настроены:
-
-1. **Management UI** — установлен и запущен (`install-management-ui.sh`)
-2. **config.json** — заполнены поля:
-   - `gitlab_url` — URL GitLab (например `https://gitlab.dev.borisovai.ru`)
-   - `gitlab_token` — Personal Access Token с правами `api`
-   - `strapi_url` — URL Strapi API (если нужны docs/product сценарии)
-   - `strapi_token` — API токен Strapi
-   - `base_port` — начальный порт для выделения (по умолчанию 4010)
-   - `runner_tag` — тег GitLab Runner (по умолчанию `deploy-production`)
-3. **DNS API** — запущен (для сценария deploy)
-4. **Traefik** — установлен с file provider и watch (для сценария deploy)
-5. **GitLab Runner** — зарегистрирован с тегом `deploy-production`, shell executor
-
-## CI шаблоны
-
-Шаблоны хранятся в `management-ui/templates/`. Плейсхолдеры, используемые в шаблонах:
-
-| Плейсхолдер | Описание |
-|-------------|----------|
-| `{{RUNNER_TAG}}` | Тег runner'а |
-| `{{DEFAULT_BRANCH}}` | Основная ветка (main/master) |
-
-> Остальные параметры (порт, домен, путь деплоя) передаются через CI-переменные GitLab, а не через плейсхолдеры шаблонов.
-
-Шаблоны пушатся в целевой репозиторий как `.gitlab/ci/pipeline.yml`, а `.gitlab-ci.yml` содержит только `include: local: '.gitlab/ci/pipeline.yml'`.
-
-## Обновление версий и документации (Draft/Publish)
-
-**Правило**: агент НЕ обновляет Strapi напрямую для project content (version, downloadUrl). Все обновления проходят через Management UI и требуют одобрения администратора.
-
-### Flow обновления версии продукта
+### Через CI (автоматически)
 
 ```
-Агент создаёт тег v* в GitLab → CI запускает product pipeline →
-CI отправляет webhook в Management UI (/api/publish/projects/:slug/release) →
-Запись обновляется в Strapi как draft (publishedAt: null) →
-Администратор видит черновик в Management UI (страница "Контент") →
-Администратор нажимает "Опубликовать" → запись становится published на сайте
+git tag v1.2.0 && git push --tags  ->  CI pipeline  ->
+  POST /api/publish/projects/:slug/release (webhook)  ->
+  Strapi draft  ->  Администратор публикует через UI
 ```
 
-### Flow обновления документации
-
-```
-Агент пушит в main → CI запускает docs pipeline →
-CI копирует файлы на сервер + отправляет webhook в Management UI →
-Запись обновляется как draft → Администратор публикует через UI
-```
-
-### Как отправить релиз напрямую через API
+### Через API (вручную)
 
 ```bash
 curl -X POST http://127.0.0.1:3000/api/publish/projects/my-app/release \
-  -H "Authorization: Bearer <токен>" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "version": "v1.2.0",
-    "downloadUrl": "/downloads/my-app/",
-    "changelog": "Описание изменений",
-    "source": "agent"
-  }'
+  -d '{ "version": "v1.2.0", "changelog": "Новые функции", "source": "agent" }'
 ```
 
-Релиз попадает в очередь как draft. Для публикации на сайте — одобрение через Management UI.
+Релиз попадает как draft. Публикация на сайте -- через одобрение в Management UI.
 
-### Перерегистрация проекта (force)
-
-Если проект уже существует, можно перерегистрировать с `force: true`:
+### Посмотреть историю релизов
 
 ```bash
-curl -X POST http://127.0.0.1:3000/api/publish/projects \
-  -H "Authorization: Bearer <токен>" \
-  -H "Content-Type: application/json" \
-  -d '{ "gitlabProjectId": 5, "slug": "my-app", "projectType": "deploy", "force": true }'
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:3000/api/publish/projects/my-app/releases | jq
 ```
 
-### Повтор неуспешных шагов
+## 8. Кастомные CI-пайплайны
 
-Если регистрация завершилась частично (status: "partial"):
+Шаблоны оркестратора рассчитаны на типовой стек (Next.js, Node.js). Если проект использует другой стек (Python, Go, Rust):
 
-```bash
-curl -X PUT http://127.0.0.1:3000/api/publish/projects/my-app/retry \
-  -H "Authorization: Bearer <токен>"
-```
+1. **Зарегистрировать проект** через оркестратор -- это создаст DNS, Traefik, директории, CI-переменные
+2. **Написать свой `.gitlab/ci/pipeline.yml`** под реальный стек
+3. **Запушить** через feature-ветку + Merge Request (main защищена, прямой push запрещён)
+4. **Не использовать** `update-ci` -- он перезапишет кастомный pipeline шаблоном
 
-## Рекомендации
+Плейсхолдеры в шаблонах: `{{RUNNER_TAG}}`, `{{DEFAULT_BRANCH}}`. Остальные параметры (порт, домен, путь) передаются через CI-переменные GitLab.
 
-1. **Проверяй slug** — должен быть уникальным, латиница и дефисы
-2. **Проверяй steps** — каждый шаг может завершиться ошибкой независимо
-3. **deploy** — самый комплексный сценарий, проверяй DNS и Traefik после регистрации
-4. **Перерегистрация** — используй `force: true` вместо удаления + повторной регистрации
-5. **Partial** — используй `retry` для повтора неуспешных шагов
-6. **update-ci** — используй для обновления CI после изменения шаблонов
-7. **Версии** — не обновляй Strapi напрямую, используй release endpoint или git tags
-
-## Защищённые ветки и Merge Request
-
-Ветка `main` в GitLab защищена — прямой `git push` в неё запрещён. Для доставки изменений:
-
-1. Коммитить в feature-ветку и пушить её:
-   ```bash
-   git checkout -b fix/my-changes
-   git add . && git commit -m "описание"
-   git push -u origin fix/my-changes
-   ```
-2. Создать Merge Request через GitLab UI (ссылка выводится в ответе `git push`)
-3. Смержить MR в `main` — после этого CI/CD пайплайн запустится автоматически
-
-> **Важно:** Runner с тегом `deploy-production` принимает задачи **только с защищённых веток** (main). Пайплайны на feature-ветках будут висеть в статусе "pending (stuck)".
-
-## Кастомные CI-пайплайны (нестандартный стек)
-
-Шаблоны оркестратора рассчитаны на типовой стек:
-- `frontend` → Next.js в `frontend/`
-- `backend` → Node.js в `backend/`
-- `fullstack` → Next.js + Node.js
-
-Если проект использует **другой стек** (Python, Go, Rust, нестандартные пути), шаблон нужно заменить вручную.
-
-### Порядок действий
-
-1. **Зарегистрировать проект** через оркестратор как обычно — это создаст DNS, Traefik, директории, CI-переменные (`DEPLOY_PATH`, `PM2_APP_NAME`), выделит порт
-2. **Написать свой `.gitlab/ci/pipeline.yml`** под реальный стек проекта
-3. **Запушить** через feature-ветку + Merge Request (см. выше)
-
-### Пример: Python FastAPI + Vite React
-
-Структура проекта:
-```
-api/              # Python FastAPI backend
-src/              # Python модули
-frontend/app/     # Vite + React (package.json здесь, не в frontend/)
-requirements.txt
-```
-
-Кастомный `.gitlab/ci/pipeline.yml`:
-
-```yaml
-stages:
-  - build
-  - deploy
-
-build:frontend:
-  stage: build
-  tags:
-    - deploy-production
-  script:
-    - cd frontend/app      # НЕ cd frontend!
-    - npm ci
-    - npm run build
-  artifacts:
-    paths:
-      - frontend/app/dist/
-    expire_in: 1 hour
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-
-deploy:
-  stage: deploy
-  tags:
-    - deploy-production
-  dependencies:
-    - build:frontend
-  script:
-    # Бэкенд (Python)
-    - mkdir -p $DEPLOY_PATH/api $DEPLOY_PATH/src $DEPLOY_PATH/data $DEPLOY_PATH/static
-    - rsync -a --delete --exclude='__pycache__' --exclude='*.pyc' api/ $DEPLOY_PATH/api/
-    - rsync -a --delete --exclude='__pycache__' --exclude='*.pyc' src/ $DEPLOY_PATH/src/
-    - cp requirements.txt $DEPLOY_PATH/requirements.txt
-
-    # Фронтенд (Vite build)
-    - rsync -a --delete frontend/app/dist/ $DEPLOY_PATH/static/
-
-    # Python venv
-    - cd $DEPLOY_PATH
-    - test -d venv || python3 -m venv venv
-    - ./venv/bin/pip install -r requirements.txt --quiet
-
-    # .env (опциональная CI-переменная типа File)
-    - test -f "$BACKEND_ENV" && cp "$BACKEND_ENV" $DEPLOY_PATH/.env || true
-
-    # PM2 ecosystem
-    - |
-      cat > $DEPLOY_PATH/ecosystem.config.js << PMEOF
-      module.exports = {
-        apps: [{
-          name: '$PM2_APP_NAME',
-          cwd: '$DEPLOY_PATH',
-          script: './venv/bin/uvicorn',
-          args: 'api.main:app --host 127.0.0.1 --port <ПОРТ>',
-          env: { PYTHONPATH: '.' },
-        }]
-      };
-      PMEOF
-
-    # Запуск / перезапуск
-    - |
-      if pm2 describe $PM2_APP_NAME > /dev/null 2>&1; then
-        cd $DEPLOY_PATH && pm2 reload ecosystem.config.js --update-env
-      else
-        cd $DEPLOY_PATH && pm2 start ecosystem.config.js
-      fi
-    - pm2 save
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-```
-
-> Замени `<ПОРТ>` на выделенный порт из ответа оркестратора (`ports.frontend`).
-
-### SPA-раздача из FastAPI (для fullstack)
-
-Если фронтенд — SPA (React, Vue, Svelte), бэкенд должен отдавать собранные статические файлы в production. Добавь в FastAPI-приложение:
-
-```python
-from pathlib import Path
-from starlette.staticfiles import StaticFiles
-
-_STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
-
-# После всех роутеров, в конце файла:
-if _STATIC_DIR.exists() and (_STATIC_DIR / "index.html").exists():
-    class _SPAStaticFiles(StaticFiles):
-        async def get_response(self, path: str, scope):
-            try:
-                response = await super().get_response(path, scope)
-                if response.status_code == 404:
-                    response = await super().get_response("index.html", scope)
-                return response
-            except Exception:
-                return await super().get_response("index.html", scope)
-
-    app.mount("/", _SPAStaticFiles(directory=str(_STATIC_DIR), html=True), name="spa")
-```
-
-Это монтируется **после** всех API-роутов, поэтому API-эндпоинты имеют приоритет. Для несуществующих путей отдаётся `index.html` (client-side routing).
-
-Также добавь production-домен в CORS:
-```python
-allow_origins=[
-    "http://localhost:5173",  # dev
-    "https://<slug>.borisovai.ru",    # production
-    "https://<slug>.borisovai.tech",  # production (alt)
-]
-```
-
-## Домены и порты
-
-- Домен проекта: `<slug>.borisovai.ru` и `<slug>.borisovai.tech` (оба генерируются автоматически)
-- В ответе API `domain` содержит оба домена через запятую: `"my-app.borisovai.ru,my-app.borisovai.tech"`
-- Порты выделяются автоматически начиная с `base_port` (по умолчанию 4010)
-- Traefik маршрутизирует HTTPS-трафик с обоих доменов на `127.0.0.1:<порт>`
-- Порт можно узнать из ответа регистрации: `response.project.ports.frontend`
-
-## Типичные ошибки
+## 9. Типичные ошибки
 
 | Ошибка | Причина | Решение |
 |--------|---------|---------|
-| `npm error ENOENT: .../frontend/package.json` | Шаблон ожидает `frontend/package.json`, а в проекте `frontend/app/package.json` | Написать кастомный pipeline (см. выше) |
-| `cd backend && npm install` fails | Бэкенд не Node.js (Python, Go и т.д.) | Кастомный pipeline |
-| Pipeline "pending (stuck)" | Runner `deploy-production` не принимает задачи с feature-веток | Смержить в main |
-| `git push` rejected: protected branch | Прямой пуш в main запрещён | Пушить в feature-ветку, мержить через MR |
-| `update-ci` затирает кастомный pipeline | `update-ci` всегда применяет шаблон | Не использовать `update-ci` для проектов с кастомным pipeline |
+| `409 Conflict: slug уже существует` | Проект с таким slug есть в реестре | Добавить `"force": true` или удалить + создать заново |
+| `status: "partial"` | Часть шагов не выполнилась | `PUT /api/publish/projects/:slug/retry` |
+| Pipeline "pending (stuck)" | Runner принимает задачи только с protected branches | Смержить в main |
+| `git push` rejected: protected branch | Прямой push в main запрещён | Feature-ветка + Merge Request |
+| `update-ci` затирает кастомный pipeline | `update-ci` применяет шаблон | Не использовать для кастомных проектов |
+| `401 Требуется авторизация` | Невалидный или отсутствующий Bearer-токен | Проверить токен в UI "Токены" |
+| `authelia: false` не работает для существующего сервиса | Traefik-конфиг не обновляется при retry | Удалить + перерегистрировать с `force: true` |
+
+## 10. Связанные инструкции
+
+- [AGENT_API_GUIDE.md](AGENT_API_GUIDE.md) -- публикация контента через Strapi API
+- [AGENT_GITOPS.md](AGENT_GITOPS.md) -- CI/CD деплой borisovai-admin
+- [AGENT_SERVICES.md](AGENT_SERVICES.md) -- управление сервисами и DNS
+- [AGENT_PUBLISH_SETUP.md](AGENT_PUBLISH_SETUP.md) -- настройка деплоя borisovai-site
+- [AGENT_ANALYTICS.md](AGENT_ANALYTICS.md) -- интеграция Umami Analytics
+
+### AI-агент Management UI: доступные инструменты
+
+Вместо curl можно использовать встроенные инструменты AI-агента (через UI "Агент"):
+
+| Инструмент | Описание | Tier |
+|------------|----------|------|
+| `services_list` | Список Traefik-сервисов | auto |
+| `service_create` | Создать Traefik-сервис | approve |
+| `dns_list` | Список DNS-записей | auto |
+| `dns_create` | Создать DNS-запись для всех base_domains | approve |
+| `git_status` | Git status репозитория | auto |
+| `git_commit` | Создать git коммит | approve |
+| `git_push` | Git push в remote | approve |
+| `monitoring_status` | Статус мониторинга сервисов | auto |
+| `monitoring_check` | Немедленная проверка здоровья | auto |
+
+Инструменты с tier `approve` требуют подтверждения администратора в UI перед выполнением.
