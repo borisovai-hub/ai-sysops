@@ -74,6 +74,11 @@ echo "Установка зависимостей..."
 cd "$APP_DIR"
 npm ci
 
+# Очистка стейл build-артефактов (rsync --exclude не удаляет существующие)
+echo "Очистка стейл build-кэша..."
+rm -rf shared/dist backend/dist frontend/dist
+rm -f shared/tsconfig.tsbuildinfo backend/tsconfig.tsbuildinfo frontend/tsconfig.tsbuildinfo
+
 echo "Сборка monorepo (shared -> frontend -> backend)..."
 npm run build
 
