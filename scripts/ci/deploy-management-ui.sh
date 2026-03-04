@@ -92,10 +92,30 @@ chown -R management-ui:management-ui "$DB_DIR" 2>/dev/null || true
 CURRENT_EXEC=$(grep -oP 'ExecStart=\K.*' /etc/systemd/system/management-ui.service 2>/dev/null || echo "")
 NEED_SYSTEMD_UPDATE=false
 
-# Проверяем что ExecStart указывает на backend/dist/index.js
+# Проверяем что ExecStart и User корректны
 if [[ "$CURRENT_EXEC" != *"backend/dist/index.js"* ]]; then
     NEED_SYSTEMD_UPDATE=true
 fi
+# Проверяем что User=management-ui (а не root или другой)
+CURRENT_USER=$(grep -oP 'User=\K.*' /etc/systemd/system/management-ui.service 2>/dev/null || echo "")
+if [[ "$CURRENT_USER" != "management-ui" ]]; then
+    NEED_SYSTEMD_UPDATE=true
+fi
+# Проверяем что StartLimitIntervalSec в [Unit] (не в [Service])
+if grep -q '^\[Service\]' /etc/systemd/system/management-ui.service 2>/dev/null && \
+   grep -A20 '^\[Service\]' /etc/systemd/system/management-ui.service 2>/dev/null | grep -q 'StartLimitIntervalSec'; then
+    NEED_SYSTEMD_UPDATE=true
+fi
+
+# Создание system user если не существует
+if ! id -u management-ui > /dev/null 2>&1; then
+    echo "Создание пользователя management-ui..."
+    adduser --system --no-create-home --group management-ui 2>/dev/null || true
+fi
+
+# Права на директории для нового пользователя
+chown -R management-ui:management-ui "$APP_DIR" 2>/dev/null || true
+chown -R management-ui:management-ui "$CONFIG_DIR" 2>/dev/null || true
 
 if [ "$NEED_SYSTEMD_UPDATE" = true ] && [ -f /etc/systemd/system/management-ui.service ]; then
     echo "Обновление systemd service (monorepo entry point)..."
@@ -104,6 +124,8 @@ if [ "$NEED_SYSTEMD_UPDATE" = true ] && [ -f /etc/systemd/system/management-ui.s
 [Unit]
 Description=Management UI
 After=network.target traefik.service
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 Type=simple
@@ -113,8 +135,6 @@ WorkingDirectory=/opt/management-ui
 ExecStart=/usr/bin/node backend/dist/index.js
 Restart=always
 RestartSec=5
-StartLimitBurst=5
-StartLimitIntervalSec=60
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=SERVER_NAME=contabo-sm-139
