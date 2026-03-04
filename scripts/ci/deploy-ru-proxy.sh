@@ -1,0 +1,137 @@
+#!/bin/bash
+# Деплой RU Proxy доменов из GitOps-файла config/<server>/ru-proxy/domains.json
+# Синхронизирует домены через RU Proxy Management API
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+echo "=== Деплой RU Proxy доменов ==="
+
+# Читаем конфиг RU Proxy из install-config.json
+RU_PROXY_URL=""
+RU_PROXY_TOKEN=""
+if [ -f /etc/install-config.json ]; then
+    RU_PROXY_URL=$(python3 -c "import json; c=json.load(open('/etc/install-config.json')); print(c.get('ru_proxy_api_url',''))" 2>/dev/null || echo "")
+    RU_PROXY_TOKEN=$(python3 -c "import json; c=json.load(open('/etc/install-config.json')); print(c.get('ru_proxy_api_token',''))" 2>/dev/null || echo "")
+fi
+
+if [ -z "$RU_PROXY_URL" ] || [ -z "$RU_PROXY_TOKEN" ]; then
+    echo "RU Proxy не настроен (ru_proxy_api_url/token) — пропуск"
+    exit 0
+fi
+
+# Проверка доступности RU Proxy API
+if ! curl -sf --max-time 5 -H "Authorization: Bearer ${RU_PROXY_TOKEN}" "${RU_PROXY_URL}/api/health" > /dev/null 2>&1; then
+    echo "RU Proxy API недоступен — пропуск"
+    exit 0
+fi
+
+# Поиск файла domains.json
+DOMAINS_FILE=""
+for dir in "$REPO_ROOT"/config/*/ru-proxy; do
+    [ ! -d "$dir" ] && continue
+    parent=$(basename "$(dirname "$dir")")
+    [ "$parent" = "single-machine" ] && continue
+    if [ -f "$dir/domains.json" ]; then
+        DOMAINS_FILE="$dir/domains.json"
+        echo "Файл доменов: config/$parent/ru-proxy/domains.json"
+        break
+    fi
+done
+
+if [ -z "$DOMAINS_FILE" ]; then
+    echo "Файл domains.json не найден — пропуск"
+    exit 0
+fi
+
+DESIRED=$(cat "$DOMAINS_FILE")
+DESIRED_COUNT=$(echo "$DESIRED" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+
+if [ "$DESIRED_COUNT" = "0" ]; then
+    echo "Файл domains.json пуст — пропуск"
+    exit 0
+fi
+
+# Текущие домены из API
+CURRENT=$(curl -sf -H "Authorization: Bearer ${RU_PROXY_TOKEN}" "${RU_PROXY_URL}/api/domains" 2>/dev/null || echo '[]')
+
+CREATED=0
+DELETED=0
+UPDATED=0
+
+# Добавляем/обновляем домены из файла
+while IFS= read -r line; do
+    DOMAIN=$(echo "$line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('domain',''))")
+    BACKEND=$(echo "$line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('backend',''))")
+    ENABLED=$(echo "$line" | python3 -c "import json,sys; print(str(json.load(sys.stdin).get('enabled',True)).lower())")
+
+    [ -z "$DOMAIN" ] && continue
+
+    # Проверяем существование в текущих
+    EXISTS=$(echo "$CURRENT" | python3 -c "
+import json,sys
+for d in json.load(sys.stdin):
+    if d.get('domain') == '$DOMAIN':
+        print('yes')
+        sys.exit(0)
+print('no')
+" 2>/dev/null || echo "no")
+
+    if [ "$EXISTS" = "no" ]; then
+        BODY="{\"domain\":\"${DOMAIN}\""
+        [ -n "$BACKEND" ] && BODY="${BODY},\"backend\":\"${BACKEND}\""
+        BODY="${BODY}}"
+        if curl -sf -X POST -H "Authorization: Bearer ${RU_PROXY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$BODY" "${RU_PROXY_URL}/api/domains" > /dev/null 2>&1; then
+            echo "  [+] ${DOMAIN}"
+            CREATED=$((CREATED + 1))
+        else
+            echo "  [!] Ошибка добавления ${DOMAIN}"
+        fi
+    fi
+done < <(echo "$DESIRED" | python3 -c "
+import json,sys
+for r in json.load(sys.stdin):
+    print(json.dumps(r))
+")
+
+# Удаляем домены, которых нет в файле
+while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    CUR_DOMAIN=$(echo "$line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('domain',''))")
+    [ -z "$CUR_DOMAIN" ] && continue
+
+    IN_DESIRED=$(echo "$DESIRED" | python3 -c "
+import json,sys
+for d in json.load(sys.stdin):
+    if d.get('domain') == '$CUR_DOMAIN':
+        print('yes')
+        sys.exit(0)
+print('no')
+" 2>/dev/null || echo "yes")
+
+    if [ "$IN_DESIRED" = "no" ]; then
+        ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$CUR_DOMAIN'))")
+        if curl -sf -X DELETE -H "Authorization: Bearer ${RU_PROXY_TOKEN}" \
+            "${RU_PROXY_URL}/api/domains/${ENCODED}" > /dev/null 2>&1; then
+            echo "  [-] ${CUR_DOMAIN} удалён"
+            DELETED=$((DELETED + 1))
+        fi
+    fi
+done < <(echo "$CURRENT" | python3 -c "
+import json,sys
+for d in json.load(sys.stdin):
+    print(json.dumps(d))
+")
+
+# Reload Caddy если были изменения
+if [ "$CREATED" -gt 0 ] || [ "$DELETED" -gt 0 ]; then
+    echo "  Reload Caddy..."
+    curl -sf -X POST -H "Authorization: Bearer ${RU_PROXY_TOKEN}" \
+        "${RU_PROXY_URL}/api/reload" > /dev/null 2>&1 || true
+fi
+
+echo "  Создано: $CREATED, удалено: $DELETED"
+echo "=== RU Proxy домены задеплоены ==="

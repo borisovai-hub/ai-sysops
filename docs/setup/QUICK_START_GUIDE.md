@@ -1,117 +1,137 @@
 # Быстрое руководство по установке
 
-**Для одной физической машины**: Все VM находятся в одной подсети (например, `192.168.1.0/24`). Используйте один мост `vmbr0` в Proxmox.
+Все компоненты устанавливаются на один сервер (single machine). Время: ~25 минут.
 
-## Минимальные шаги для запуска
-
-### 1. VM 2 (GitLab) - 5 минут
+## 1. GitLab CE — 5 мин
 
 ```bash
-# Подключитесь к VM 2
-ssh root@<VM2_IP>
-
-# Загрузите и запустите скрипт
-chmod +x install-gitlab.sh
-sudo ./install-gitlab.sh
-# Введите: IP Traefik VM, домен для GitLab
-
+sudo ./scripts/single-machine/install-gitlab.sh
+# Введите домен для GitLab
 # Сохраните начальный пароль root!
 ```
 
-### 2. VM 1 (Traefik) - 10 минут
+## 2. Traefik — 3 мин
 
 ```bash
-# Подключитесь к VM 1
-ssh root@<VM1_IP>
-
-# Установка Traefik
-chmod +x install-traefik.sh
-sudo ./install-traefik.sh
-# Введите: IP GitLab VM, домен GitLab, email
-
-# Настройка DNS API
-chmod +x setup-dns-api.sh
-sudo ./setup-dns-api.sh
-# Выберите провайдера и введите данные
-
-# Установка веб-интерфейса
-chmod +x install-management-ui.sh
-sudo ./install-management-ui.sh
-
-# Настройка Traefik для веб-интерфейса
-chmod +x setup-management-ui-traefik.sh
-sudo ./setup-management-ui-traefik.sh
-# Введите домен для веб-интерфейса
+sudo ./scripts/single-machine/install-traefik.sh
+# Введите email для Let's Encrypt
 ```
 
-### 3. Проверка - 2 минуты
+## 3. DNS API — 2 мин
 
 ```bash
-# На VM 1
-./check-status.sh
-
-# Проверьте в браузере:
-# - https://gitlab.example.com
-# - https://manage.example.com
+sudo ./scripts/single-machine/install-dns-api.sh
+# Выберите провайдера (Cloudflare) и введите данные
+manage-dns test
 ```
 
-## Добавление нового сервиса
+## 4. Management UI — 5 мин
 
-### Через веб-интерфейс:
-1. Откройте https://manage.example.com
-2. Нажмите "Добавить сервис"
-3. Заполните форму
-4. Готово!
+Monorepo: Fastify v5 backend + React 19 frontend + shared types.
 
-### Через командную строку:
 ```bash
-sudo ./deploy-service.sh app1 192.168.1.100 8080
+sudo ./scripts/single-machine/install-management-ui.sh
+```
+
+Скрипт:
+- Копирует `management-ui/` в `/opt/management-ui/`
+- Собирает все пакеты: `npm ci && npm run build` (shared -> backend + frontend)
+- Создаёт конфиги в `/etc/management-ui/` (config.json, auth.json)
+- БД: SQLite `/var/lib/management-ui/management-ui.db` (автомиграция через Drizzle)
+- Запускает systemd-сервис (`node backend/dist/index.js`, порт 3000)
+
+Обновление без потери данных:
+```bash
+sudo ./scripts/single-machine/install-management-ui.sh --force
+```
+
+## 5. Traefik-конфиги — 2 мин
+
+```bash
+sudo ./scripts/single-machine/configure-traefik.sh
+# Генерирует YAML для всех сервисов с .ru и .tech доменами
+```
+
+## 6. Authelia SSO (опционально) — 3 мин
+
+```bash
+sudo ./scripts/single-machine/install-authelia.sh
+# Защищает Management UI, n8n, Mailu, Umami
+```
+
+## 7. frps туннели (опционально) — 2 мин
+
+```bash
+sudo ./scripts/single-machine/install-frps.sh
+```
+
+## 8. Umami Analytics (опционально) — 3 мин
+
+```bash
+sudo ./scripts/single-machine/install-umami.sh
+# Docker: Umami + SQLite
+```
+
+## Проверка
+
+```bash
+# Статус сервисов
+systemctl status traefik management-ui authelia
+
+# GitLab
+gitlab-ctl status
+
+# Health check
+curl http://localhost:3000/api/health
+
+# В браузере:
+# - https://admin.borisovai.ru (Management UI)
+# - https://gitlab.dev.borisovai.ru (GitLab)
+# - https://auth.borisovai.ru (Authelia)
 ```
 
 ## Полезные команды
 
 ```bash
-# Статус сервисов
-systemctl status traefik
-systemctl status management-ui
-gitlab-ctl status
-
 # Логи
-journalctl -u traefik -f
 journalctl -u management-ui -f
+journalctl -u traefik -f
 
-# Управление DNS
+# DNS
 manage-dns create subdomain 1.2.3.4
 manage-dns delete subdomain
 manage-dns test
+
+# Traefik конфиги
+ls /etc/traefik/dynamic/
+
+# Management UI БД
+ls -la /var/lib/management-ui/management-ui.db
 ```
 
 ## Решение проблем
 
+### Management UI не запускается
+```bash
+journalctl -u management-ui -n 50
+ls -la /var/lib/management-ui/
+cat /etc/management-ui/config.json
+```
+
 ### GitLab не доступен
 ```bash
-# Проверьте на VM 2
 curl http://localhost
 gitlab-ctl status
-
-# Проверьте на VM 1
-curl http://<GITLAB_IP>
 ```
 
 ### SSL не работает
 ```bash
-# Проверьте логи Traefik
 journalctl -u traefik | grep -i acme
-
-# Проверьте права
 ls -la /var/lib/traefik/acme/acme.json
 ```
 
 ### DNS не создается
 ```bash
-# Проверьте API
 manage-dns test
-
-# Проверьте конфигурацию
 cat /etc/dns-api/config.json
 ```

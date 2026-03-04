@@ -1,0 +1,36 @@
+{
+  "name": "@management-ui/backend",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "cross-env DEV_AUTH=1 DB_PATH=../test.db tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@fastify/cors": "^10.0.0",
+    "@fastify/multipart": "^9.0.0",
+    "@fastify/static": "^8.0.0",
+    "@libsql/client": "^0.14.0",
+    "@management-ui/shared": "*",
+    "argon2": "^0.44.0",
+    "axios": "^1.7.0",
+    "drizzle-orm": "^0.38.0",
+    "fastify": "^5.0.0",
+    "fastify-plugin": "^5.0.0",
+    "simple-git": "^3.27.0",
+    "yaml": "^2.6.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "cross-env": "^10.1.0",
+    "drizzle-kit": "^0.30.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

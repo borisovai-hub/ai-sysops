@@ -110,8 +110,17 @@ deploy:
     # Деплой Traefik-конфигов (dynamic auto-reload + static с рестартом)
     - bash scripts/ci/deploy-traefik.sh
 
+    # Деплой DNS-записей из GitOps (config/<server>/dns/records.json)
+    - bash scripts/ci/deploy-dns-records.sh
+
     # Деплой Authelia SSO (обновление конфигов если установлена)
     - bash scripts/ci/deploy-authelia.sh
+
+    # Деплой Authelia users из GitOps (config/<server>/authelia/)
+    - bash scripts/ci/deploy-authelia-users.sh
+
+    # Деплой RU Proxy доменов из GitOps (config/<server>/ru-proxy/domains.json)
+    - bash scripts/ci/deploy-ru-proxy.sh
 
     # Деплой Umami Analytics (обновление конфигов и образов если установлен)
     - bash scripts/ci/deploy-umami.sh

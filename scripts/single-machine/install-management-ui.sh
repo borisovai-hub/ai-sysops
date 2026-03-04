@@ -162,16 +162,26 @@ else
     exit 1
 fi
 
-# Установка зависимостей
+# Установка зависимостей и сборка monorepo
 echo ""
-echo "[4/7] Установка зависимостей Node.js..."
+echo "[4/7] Установка зависимостей и сборка..."
 cd "$APP_DIR"
 if [ -f "package.json" ]; then
-    npm install --production
+    npm ci
     if [ $? -ne 0 ]; then
         echo "Ошибка: Не удалось установить зависимости npm"
         exit 1
     fi
+    echo "Сборка monorepo (shared -> frontend -> backend)..."
+    npm run build
+    if [ $? -ne 0 ]; then
+        echo "Ошибка: Сборка не удалась"
+        exit 1
+    fi
+    echo "Миграции БД..."
+    mkdir -p /var/lib/management-ui
+    chown management-ui:management-ui /var/lib/management-ui
+    npm run db:migrate -w backend 2>&1 || echo "ПРЕДУПРЕЖДЕНИЕ: миграции не выполнены"
 else
     echo "Ошибка: package.json не найден в $APP_DIR"
     exit 1
@@ -381,7 +391,7 @@ Type=simple
 User=management-ui
 Group=management-ui
 WorkingDirectory=$APP_DIR
-ExecStart=/usr/bin/node server.js
+ExecStart=/usr/bin/node backend/dist/index.js
 Restart=always
 RestartSec=5
 StartLimitBurst=5
@@ -390,7 +400,7 @@ Environment=NODE_ENV=production
 Environment=PORT=3000
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/etc/management-ui /var/log
+ReadWritePaths=/etc/management-ui /var/log /var/lib/management-ui
 PrivateTmp=true
 
 [Install]

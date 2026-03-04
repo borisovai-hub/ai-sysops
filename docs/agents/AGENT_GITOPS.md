@@ -2,44 +2,67 @@
 
 Руководство по CI/CD pipeline для автоматического деплоя borisovai-admin на сервер при push в main.
 
-## Обзор
+## 1. Обзор
 
-При каждом push в ветку `main` репозитория borisovai-admin запускается GitLab CI pipeline:
+При push в ветку `main` запускается GitLab CI pipeline:
 
 ```
-validate → deploy → verify
+validate → install → deploy → verify
 ```
 
-Pipeline выполняется на сервере через shell runner с тегом `deploy-production`.
+- **validate** — проверка CI Variables (обычный раннер `deploy-production`)
+- **install** — установка Docker, Umami и ручные компоненты (раннер `deploy-root`)
+- **deploy** — сборка monorepo, rsync, миграции, перезапуск сервисов (раннер `deploy-root`)
+- **verify** — health check всех сервисов (обычный раннер `deploy-production`)
 
-## Архитектура
+## 2. Архитектура monorepo
 
-### Разделение данных
+Management UI — npm workspaces monorepo:
+
+```
+management-ui/
+├── package.json              # Корневой: workspaces, build-скрипт
+├── shared/                   # @management-ui/shared — типы, Zod-схемы
+│   ├── src/
+│   └── dist/                 # tsc → JS + .d.ts
+├── backend/                  # @management-ui/backend — Fastify v5, Drizzle ORM
+│   ├── src/
+│   └── dist/                 # tsc → node dist/index.js
+└── frontend/                 # @management-ui/frontend — React 19, Vite, Tailwind v4
+    ├── src/
+    └── dist/                 # vite build → статика
+```
+
+**Порядок сборки** (shared должен быть первым):
+
+```bash
+cd /opt/management-ui
+npm ci
+npm run build -w shared      # TypeScript → dist/
+npm run build -w frontend    # tsc + vite build → dist/
+npm run build -w backend     # tsc → dist/
+```
+
+Или одной командой: `npm run build` (порядок зашит в корневом package.json).
+
+**Systemd**: `management-ui.service` запускает `node dist/index.js` из пакета backend.
+Backend раздает статику frontend через `@fastify/static`.
+
+## 3. Разделение данных
 
 | Категория | Где хранится | Примеры |
 |-----------|-------------|---------|
-| Конфиги (не секреты) | Git — шаблоны с плейсхолдерами | base_domain, base_port, runner_tag, пути |
-| Секреты | GitLab CI Variables (masked) | gitlab_token, strapi_token |
-| Динамические данные | Только на сервере | projects.json, auth.json, records.json |
+| Код и шаблоны | Git | `management-ui/`, `scripts/`, `config/` |
+| Конфиги (шаблоны) | Git — плейсхолдеры | `config/single-machine/*.config.json` |
+| Секреты | GitLab CI Variables (masked) | `GITLAB_TOKEN`, `STRAPI_TOKEN` |
+| Конфиг сервиса | Сервер | `/etc/management-ui/config.json` |
+| Авторизация | Сервер (не перезаписывается) | `/etc/management-ui/auth.json` |
+| Реестр проектов | Сервер (не перезаписывается) | `/etc/management-ui/projects.json` |
+| БД | Сервер | `/var/lib/management-ui/management-ui.db` (SQLite) |
 
-### Файлы
+## 4. CI Variables
 
-```
-borisovai-admin/
-├── .gitlab-ci.yml                              # Pipeline: validate → deploy → verify
-├── config/single-machine/
-│   ├── management-ui.config.json               # Шаблон конфига Management UI
-│   └── dns-api.config.json                     # Шаблон конфига DNS API
-└── scripts/ci/
-    ├── render-configs.sh                       # Подстановка переменных в шаблоны
-    ├── deploy-management-ui.sh                 # Деплой Management UI
-    ├── deploy-dns-api.sh                       # Деплой DNS API
-    └── health-check.sh                         # Пост-деплой проверка
-```
-
-## Настройка CI Variables
-
-В GitLab → Settings → CI/CD → Variables задать:
+GitLab Settings -> CI/CD -> Variables:
 
 | Переменная | Значение | Protected | Masked |
 |-----------|----------|-----------|--------|
@@ -49,125 +72,90 @@ borisovai-admin/
 | `STRAPI_TOKEN` | API токен Strapi | да | да |
 | `BASE_DOMAIN` | `borisovai.ru` | нет | нет |
 
-## Шаблоны конфигов
+Плейсхолдеры `{{VARIABLE}}` в шаблонах `config/single-machine/*.config.json` заменяются скриптом `render-configs.sh`.
 
-### management-ui.config.json
+## 5. Стадии pipeline
 
-```json
-{
-  "gitlab_url": "{{GITLAB_URL}}",
-  "gitlab_token": "{{GITLAB_TOKEN}}",
-  "strapi_url": "{{STRAPI_URL}}",
-  "strapi_token": "{{STRAPI_TOKEN}}",
-  "base_port": 4010,
-  "runner_tag": "deploy-production",
-  "main_site_path": "/var/www/borisovai-site",
-  "deploy_base_path": "/var/www"
-}
-```
+### 5.1 validate
 
-### dns-api.config.json
-
-```json
-{
-  "provider": "local",
-  "domain": "{{BASE_DOMAIN}}",
-  "port": 5353
-}
-```
-
-Плейсхолдеры `{{VARIABLE}}` заменяются на значения CI Variables скриптом `render-configs.sh`.
-
-## Стадии pipeline
-
-### 1. validate
-
-Проверяет наличие всех обязательных CI Variables без рендеринга:
+Проверяет наличие всех обязательных CI Variables:
 
 ```bash
 bash scripts/ci/render-configs.sh --validate
 ```
 
-Fail-fast: если хотя бы одна переменная не задана — pipeline останавливается.
+Fail-fast: если переменная не задана, pipeline останавливается.
 
-### 2. deploy
+### 5.2 install
 
-Последовательно выполняет:
+Параллельные и зависимые jobs:
 
-1. **Рендеринг конфигов** — `render-configs.sh` создаёт `rendered-configs/*.json` (chmod 600)
+- **install:docker** — автоматически, установка Docker (для Umami, fileserver)
+- **install:umami** — автоматически, после Docker
+- **install:authelia** — ручной (Play button), установка Authelia SSO
+- **install:frps** — ручной, установка frp server
+- **install:fileserver** — ручной, после Docker
+- **install:gitlab-oidc** — ручной, настройка GitLab OIDC
+
+### 5.3 deploy
+
+Выполняется последовательно в одном job:
+
+1. **Рендеринг конфигов** — `render-configs.sh` создает `rendered-configs/*.json` (chmod 600)
 2. **Деплой Management UI** — `deploy-management-ui.sh`:
-   - `rsync -av --delete --exclude=node_modules management-ui/ → /opt/management-ui/`
-   - Копирует rendered config → `/etc/management-ui/config.json`
-   - `npm ci --production`
+   - `rsync -av --delete --exclude=node_modules management-ui/ -> /opt/management-ui/`
+   - Копирует rendered config -> `/etc/management-ui/config.json`
+   - `npm ci` (устанавливает все workspace-зависимости)
+   - `npm run build` (shared -> frontend -> backend)
+   - `npm run db:migrate` (Drizzle миграции SQLite)
    - `systemctl restart management-ui`
-3. **Деплой DNS API** — `deploy-dns-api.sh`:
-   - `rsync -av --delete --exclude=node_modules scripts/dns-api/ → /opt/dns-api/`
-   - Копирует rendered config → `/etc/dns-api/config.json`
-   - `systemctl restart dns-api` (если сервис существует)
-4. **Копирование скриптов** — `scripts/single-machine/` → `/opt/borisovai-admin/scripts/single-machine/`
+3. **Деплой DNS API** — `deploy-dns-api.sh`
+4. **Деплой Traefik** — `deploy-traefik.sh` (dynamic auto-reload + static с рестартом)
+5. **Деплой DNS-записей** — `deploy-dns-records.sh`
+6. **Деплой Authelia** — `deploy-authelia.sh` + `deploy-authelia-users.sh`
+7. **Деплой RU Proxy** — `deploy-ru-proxy.sh`
+8. **Деплой Umami** — `deploy-umami.sh`
+9. **Деплой Fileserver** — `deploy-fileserver.sh`
+10. **Деплой Mailu** — `deploy-mailu.sh`
+11. **Копирование скриптов** — `scripts/single-machine/ -> /opt/borisovai-admin/scripts/`
 
-### 3. verify
+### 5.4 verify
 
-Проверка здоровья сервисов:
+Health check сервисов через `health-check.sh`:
 
-- Management UI (порт 3000) — **обязательно**, при ошибке pipeline падает
-- DNS API (порт 5353) — опционально (предупреждение)
-- Traefik (порт 8080) — опционально (предупреждение)
+- **Management UI** (порт 3000) — обязательно, при ошибке pipeline падает
+- DNS API (порт 5353) — опционально
+- Authelia (порт 9091) — опционально
+- Traefik (порт 8080) — опционально
+- Umami Analytics (порт 3001) — опционально
 
-## Гарантии безопасности
+## 6. Гарантии безопасности
 
-- **auth.json** — никогда не перезаписывается (создаётся только при `install-management-ui.sh`)
-- **projects.json** — никогда не трогается (динамические данные оркестратора)
-- **records.json** — никогда не трогается (DNS записи)
+- **auth.json** — никогда не перезаписывается (создается только при `install-management-ui.sh`)
+- **projects.json** — не трогается (динамические данные)
+- **SQLite БД** (`/var/lib/management-ui/`) — не трогается, обновляется только через миграции
 - Секреты хранятся только в CI Variables (masked), не в Git
 - `rendered-configs/` — в `.gitignore`, файлы с chmod 600
+- DNS-записи создаются идемпотентно (проверка через GET перед POST)
 
-## Первичная установка vs CI деплой
+## 7. Troubleshooting
 
-| | Первичная установка | CI деплой |
-|---|---|---|
-| **Когда** | Новый сервер | Обновление кода |
-| **Скрипт** | `install-management-ui.sh` | CI pipeline |
-| **auth.json** | Создаёт (random password) | Не трогает |
-| **projects.json** | Создаёт пустой | Не трогает |
-| **config.json** | Создаёт из параметров | Перезаписывает из шаблона |
-| **systemd** | Создаёт unit | Перезапускает |
-| **node_modules** | npm install | npm ci |
+| Проблема | Проверить |
+|----------|-----------|
+| Pipeline не запускается | Push в `main`? Runners `deploy-production` и `deploy-root` online? |
+| validate fails | Settings -> CI/CD -> Variables — все 5 переменных заданы |
+| rsync error | `/opt/management-ui/` существует? Выполнен `install-management-ui.sh`? |
+| npm run build fails | Node.js >= 20? `package-lock.json` синхронизирован? `npm run typecheck` |
+| db:migrate fails | `/var/lib/management-ui/` существует и writable? SQLite не заблокирован? |
+| Management UI не отвечает | `journalctl -u management-ui -n 50`, `ss -tlnp \| grep 3000`, наличие `dist/` |
 
-## Troubleshooting
+## 8. Ручной деплой
 
-### Pipeline не запускается
-
-- Проверить что push в ветку `main`
-- Проверить что runner с тегом `deploy-production` online: Settings → CI/CD → Runners
-
-### validate fails: переменная не задана
-
-- Проверить Settings → CI/CD → Variables — все 5 переменных должны быть заданы
-
-### deploy fails: rsync error
-
-- Проверить что `/opt/management-ui/` существует (первичная установка выполнена)
-- Проверить права: runner должен иметь доступ к `/opt/management-ui/`
-
-### deploy fails: npm ci error
-
-- Проверить что Node.js установлен и доступен для runner
-- Проверить `package.json` и `package-lock.json` синхронизированы
-
-### verify fails: Management UI не отвечает
-
-- Проверить логи: `journalctl -u management-ui -n 50`
-- Проверить конфиг: `cat /etc/management-ui/config.json`
-- Проверить порт: `ss -tlnp | grep 3000`
-
-## Ручной деплой (альтернатива)
-
-Для отладки или при проблемах с CI можно использовать `upload-single-machine.ps1`:
-
-```powershell
-# С Windows
-.\scripts\upload-single-machine.ps1
+```bash
+# На сервере, от root
+cd /opt/management-ui
+npm ci && npm run build && npm run db:migrate
+systemctl restart management-ui && journalctl -u management-ui -f
 ```
 
-Скрипт копирует файлы через SCP и перезапускает сервисы через SSH.
+С Windows: `.\scripts\upload-single-machine.ps1` (SCP + SSH restart).
