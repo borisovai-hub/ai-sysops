@@ -73,6 +73,15 @@ echo "Установка зависимостей..."
 cd "$APP_DIR"
 npm ci
 
+# Диагностика workspace
+echo "=== Диагностика workspace ==="
+echo "Node: $(node --version), npm: $(npm --version)"
+echo "Workspace symlinks:"
+ls -la node_modules/@management-ui/ 2>/dev/null || echo "  Нет node_modules/@management-ui/"
+echo "Shared dist:"
+ls shared/dist/index.d.ts 2>/dev/null || echo "  Нет shared/dist/index.d.ts"
+echo "==="
+
 echo "Сборка monorepo (shared -> frontend -> backend)..."
 npm run build
 
