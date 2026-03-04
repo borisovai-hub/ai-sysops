@@ -19,6 +19,7 @@ rendered-configs/
 # Node.js
 node_modules/
 dist/
+*.tsbuildinfo
 
 # Dev databases
 test.db
