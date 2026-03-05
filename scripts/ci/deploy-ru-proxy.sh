@@ -105,41 +105,15 @@ for r in json.load(sys.stdin):
     print(json.dumps(r))
 ")
 
-# Удаляем домены, которых нет в файле
-while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    CUR_DOMAIN=$(echo "$line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('domain',''))")
-    [ -z "$CUR_DOMAIN" ] && continue
-
-    IN_DESIRED=$(echo "$DESIRED" | python3 -c "
-import json,sys
-for d in json.load(sys.stdin):
-    if d.get('domain') == '$CUR_DOMAIN':
-        print('yes')
-        sys.exit(0)
-print('no')
-" 2>/dev/null || echo "yes")
-
-    if [ "$IN_DESIRED" = "no" ]; then
-        ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$CUR_DOMAIN'))")
-        if curl -sf -X DELETE -H "Authorization: Bearer ${RU_PROXY_TOKEN}" \
-            "${RU_PROXY_URL}/api/domains/${ENCODED}" > /dev/null 2>&1; then
-            echo "  [-] ${CUR_DOMAIN} удалён"
-            DELETED=$((DELETED + 1))
-        fi
-    fi
-done < <(echo "$CURRENT" | python3 -c "
-import json,sys
-for d in json.load(sys.stdin):
-    print(json.dumps(d))
-")
+# НЕ удаляем домены автоматически — только additive mode
+# Удаление доменов только через UI или API вручную
 
 # Reload Caddy если были изменения
-if [ "$CREATED" -gt 0 ] || [ "$DELETED" -gt 0 ]; then
+if [ "$CREATED" -gt 0 ]; then
     echo "  Reload Caddy..."
     curl -sf -X POST -H "Authorization: Bearer ${RU_PROXY_TOKEN}" \
         "${RU_PROXY_URL}/api/reload" > /dev/null 2>&1 || true
 fi
 
-echo "  Создано: $CREATED, удалено: $DELETED"
+echo "  Создано: $CREATED"
 echo "=== RU Proxy домены задеплоены ==="

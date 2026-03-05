@@ -96,51 +96,8 @@ for r in json.load(sys.stdin):
     print(json.dumps(r))
 ")
 
-# Удаляем записи, которых нет в файле (только управляемые — те, что имеют совпадение по domain)
-MANAGED_DOMAINS=$(echo "$DESIRED" | python3 -c "
-import json,sys
-domains = set(r.get('domain','') for r in json.load(sys.stdin))
-print(' '.join(domains))
-" 2>/dev/null || echo "")
+# НЕ удаляем записи автоматически — только additive mode
+# Удаление записей только через UI или API вручную
 
-if [ -n "$MANAGED_DOMAINS" ]; then
-    while IFS= read -r line; do
-        [ -z "$line" ] && continue
-        REC_ID=$(echo "$line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))")
-        REC_SUB=$(echo "$line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('subdomain',''))")
-        REC_DOM=$(echo "$line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('domain',''))")
-
-        # Только управляемые домены
-        MANAGED=false
-        for MD in $MANAGED_DOMAINS; do
-            [ "$REC_DOM" = "$MD" ] && MANAGED=true && break
-        done
-        [ "$MANAGED" = false ] && continue
-
-        # Проверяем есть ли в desired
-        IN_DESIRED=$(echo "$DESIRED" | python3 -c "
-import json,sys
-for r in json.load(sys.stdin):
-    if r.get('subdomain') == '$REC_SUB' and r.get('domain') == '$REC_DOM':
-        print('yes')
-        sys.exit(0)
-print('no')
-" 2>/dev/null || echo "yes")
-
-        if [ "$IN_DESIRED" = "no" ] && [ -n "$REC_ID" ]; then
-            if curl -sf -X DELETE "${DNS_API_BASE}/api/records/${REC_ID}" > /dev/null 2>&1; then
-                echo "  [-] ${REC_SUB}.${REC_DOM} удалена"
-                DELETED=$((DELETED + 1))
-            fi
-        fi
-    done < <(echo "$CURRENT" | python3 -c "
-import json,sys
-data = json.load(sys.stdin)
-records = data.get('records', data if isinstance(data, list) else [])
-for r in records:
-    print(json.dumps(r))
-")
-fi
-
-echo "  Создано: $CREATED, удалено: $DELETED"
+echo "  Создано: $CREATED"
 echo "=== DNS-записи задеплоены ==="
