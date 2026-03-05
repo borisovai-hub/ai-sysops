@@ -49,9 +49,15 @@ export async function getRuProxyStatus(): Promise<Record<string, unknown>> {
  */
 export async function listDomains(): Promise<unknown> {
   if (isRuProxyGitOps()) {
-    return readDomainsFile();
+    const domains = readDomainsFile();
+    if (domains.length > 0) return domains;
+    // GitOps файл пуст — фолбэк на прямой API
   }
-  return await ruProxyApi('get', '/api/domains');
+  try {
+    return await ruProxyApi('get', '/api/domains');
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -61,7 +67,7 @@ export async function listDomains(): Promise<unknown> {
 export async function addDomain(domain: string, backend?: string): Promise<{ data: unknown; gitops?: boolean }> {
   if (!domain) throw new AppError('Домен обязателен');
 
-  if (isRuProxyGitOps()) {
+  if (isRuProxyGitOps() && readDomainsFile().length > 0) {
     const domains = readDomainsFile();
     const sanitized = sanitizeString(domain);
     if (domains.some((d) => d.domain === sanitized)) {
@@ -92,7 +98,7 @@ export async function updateDomain(
   domain: string,
   body: Record<string, unknown>,
 ): Promise<{ data: unknown; gitops?: boolean }> {
-  if (isRuProxyGitOps()) {
+  if (isRuProxyGitOps() && readDomainsFile().length > 0) {
     const domains = readDomainsFile();
     const idx = domains.findIndex((d) => d.domain === domain);
     if (idx === -1) {
@@ -113,7 +119,7 @@ export async function updateDomain(
  * GitOps: remove from repo JSON + commit. Direct: proxy to RU Proxy API.
  */
 export async function deleteDomain(domain: string): Promise<{ data: unknown; gitops?: boolean }> {
-  if (isRuProxyGitOps()) {
+  if (isRuProxyGitOps() && readDomainsFile().length > 0) {
     const domains = readDomainsFile();
     const idx = domains.findIndex((d) => d.domain === domain);
     if (idx === -1) {
