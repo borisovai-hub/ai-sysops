@@ -1,6 +1,10 @@
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
 import { authPlugin } from './plugins/auth.js';
 import { errorHandler } from './plugins/error-handler.js';
 import { authRoutes } from './routes/auth.routes.js';
@@ -72,6 +76,25 @@ export async function buildApp(opts: AppOptions = {}): Promise<FastifyInstance> 
   app.get('/api/health', async () => {
     return { status: 'ok', timestamp: new Date().toISOString() };
   });
+
+  // Static frontend (React SPA)
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const frontendDist = join(__dirname, '../../frontend/dist');
+  if (existsSync(frontendDist)) {
+    await app.register(fastifyStatic, {
+      root: frontendDist,
+      prefix: '/',
+      wildcard: false,
+    });
+
+    // SPA fallback: non-API routes → index.html
+    app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith('/api/')) {
+        return reply.status(404).send({ error: 'Not Found', message: `Route ${request.method}:${request.url} not found`, statusCode: 404 });
+      }
+      return reply.sendFile('index.html');
+    });
+  }
 
   return app;
 }
