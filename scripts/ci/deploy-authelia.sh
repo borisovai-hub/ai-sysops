@@ -174,7 +174,13 @@ echo "  Проверка authelia@file middleware..."
 _ensure_authelia_middleware "$TRAEFIK_DYN/management-ui.yml"
 _ensure_authelia_middleware "$TRAEFIK_DYN/n8n.yml"
 _ensure_authelia_middleware "$TRAEFIK_DYN/analytics.yml"
-_ensure_authelia_middleware "$TRAEFIK_DYN/files.yml"
+# files.yml — публичное файловое хранилище, без Authelia
+# Удалить authelia@file если был добавлен ранее
+if [ -f "$TRAEFIK_DYN/files.yml" ] && grep -q "authelia@file" "$TRAEFIK_DYN/files.yml"; then
+    sed -i '/authelia@file/d' "$TRAEFIK_DYN/files.yml"
+    echo "  [OK] files.yml — authelia@file удалён (публичный сервис)"
+    UPDATED=$((UPDATED + 1))
+fi
 
 # Mailu: отдельная обработка (mailu-compress)
 if [ -f "$TRAEFIK_DYN/mailu.yml" ] && ! grep -q "authelia@file" "$TRAEFIK_DYN/mailu.yml"; then
