@@ -27,7 +27,8 @@ export async function projectsRoutes(fastify: FastifyInstance) {
         : parseInt(body.gitlabProject, 10) || 0;
       // If not a numeric string (e.g. "group/name"), resolve via GitLab API
       if (!gitlabProjectId && typeof body.gitlabProject === 'string') {
-        const encoded = encodeURIComponent(body.gitlabProject);
+        const normalized = body.gitlabProject.replace(/\\/g, '/');
+        const encoded = encodeURIComponent(normalized);
         const project = await projectsService.resolveGitlabProject(encoded);
         gitlabProjectId = project.id as number;
       }
