@@ -158,7 +158,9 @@ export function isGitOpsMode(): boolean {
 
 export function getDnsRecordsPath(): string {
   if (process.env.DNS_GITOPS === 'false') return '';
-  return configPath('dns', 'records.json');
+  const p = configPath('dns', 'records.json');
+  if (p && existsSync(p)) return p;
+  return '';
 }
 
 export function isDnsGitOps(): boolean {
@@ -170,14 +172,14 @@ export function isDnsGitOps(): boolean {
 export function getAutheliaUsersPath(): string {
   if (process.env.AUTHELIA_GITOPS === 'false') return PATHS.AUTHELIA_USERS;
   const p = configPath('authelia', 'users_database.yml');
-  if (p) return p;
+  if (p && existsSync(p)) return p;
   return PATHS.AUTHELIA_USERS;
 }
 
 export function getAutheliaMailboxesPath(): string {
   if (process.env.AUTHELIA_GITOPS === 'false') return PATHS.USER_MAILBOXES;
   const p = configPath('authelia', 'user-mailboxes.json');
-  if (p) return p;
+  if (p && existsSync(p)) return p;
   return PATHS.USER_MAILBOXES;
 }
 
@@ -190,7 +192,9 @@ export function isAutheliaGitOps(): boolean {
 
 export function getRuProxyDomainsPath(): string {
   if (process.env.RU_PROXY_GITOPS === 'false') return '';
-  return configPath('ru-proxy', 'domains.json');
+  const p = configPath('ru-proxy', 'domains.json');
+  if (p && existsSync(p)) return p;
+  return '';
 }
 
 export function isRuProxyGitOps(): boolean {
