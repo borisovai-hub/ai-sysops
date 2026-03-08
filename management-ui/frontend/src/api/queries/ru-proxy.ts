@@ -18,7 +18,7 @@ export function useRuProxyStatus() {
 export function useRuProxyDomains() {
   return useQuery({
     queryKey: ['ru-proxy', 'domains'],
-    queryFn: () => api.get<{ domains: RuProxyDomain[] }>('/api/ru-proxy/domains').then(r => r.domains),
+    queryFn: () => api.get<RuProxyDomain[]>('/api/ru-proxy/domains'),
     staleTime: 60_000,
   });
 }
