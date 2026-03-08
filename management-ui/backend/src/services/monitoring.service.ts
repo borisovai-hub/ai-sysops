@@ -66,8 +66,9 @@ async function checkAuthelia(): Promise<CheckResult> {
 async function checkFrps(): Promise<CheckResult> {
   const start = Date.now();
   try {
-    const resp = await axios.get('http://localhost:17490/api/serverinfo', { timeout: 3000 });
-    return { status: 'up', responseTimeMs: Date.now() - start, statusCode: resp.status };
+    const { frpsDashboardRequest } = await import('../lib/frp-api.js');
+    await frpsDashboardRequest('/api/serverinfo');
+    return { status: 'up', responseTimeMs: Date.now() - start, statusCode: 200 };
   } catch (err: any) {
     return { status: 'down', responseTimeMs: Date.now() - start, error: err.message };
   }

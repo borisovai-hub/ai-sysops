@@ -32,7 +32,7 @@ export async function getAnalyticsStatus(): Promise<Record<string, unknown>> {
   let isRunning = false;
   const result = execCommandSafe('docker ps --filter name=umami --format "{{.Names}}"');
   if (result.success) {
-    isRunning = result.stdout === 'umami';
+    isRunning = result.stdout.trim().includes('umami');
   }
 
   let healthy = false;
@@ -50,7 +50,11 @@ export async function getAnalyticsStatus(): Promise<Record<string, unknown>> {
   const fullPrefix = `${prefix}.${middle}`;
   const domains = buildDomainsList(fullPrefix);
 
+  // status field for frontend compatibility (expects 'running' | 'stopped')
+  const status = healthy ? 'running' : isRunning ? 'degraded' : 'stopped';
+
   return {
+    status,
     installed: isRunning,
     running: healthy,
     domains,
