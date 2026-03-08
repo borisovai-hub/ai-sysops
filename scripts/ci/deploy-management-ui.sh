@@ -141,7 +141,7 @@ Environment=SERVER_NAME=contabo-sm-139
 Environment=CONFIG_REPO_DIR=/opt/server-configs
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/etc/management-ui /var/log /var/lib/management-ui /opt/server-configs
+ReadWritePaths=/etc/management-ui /etc/authelia /var/log /var/lib/management-ui /opt/server-configs
 PrivateTmp=true
 
 [Install]
@@ -149,6 +149,11 @@ WantedBy=multi-user.target
 SVCEOF
     systemctl daemon-reload
     echo "systemd service обновлён"
+fi
+
+# Доступ к /etc/authelia/ для чтения users_database.yml
+if [ -d /etc/authelia ]; then
+    chmod 711 /etc/authelia
 fi
 
 # --- Перезапуск ---
