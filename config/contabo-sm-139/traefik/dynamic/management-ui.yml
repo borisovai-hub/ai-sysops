@@ -27,6 +27,25 @@ http:
       middlewares:
         - management-ui-compress
 
+    # Cross-domain SSO sync — без Authelia (принимает одноразовый токен)
+    management-ui-sync-tech:
+      rule: "Host(`admin.borisovai.tech`) && Path(`/auth/cross-sync-accept`)"
+      service: management-ui
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      priority: 200
+
+    management-ui-sync-ru:
+      rule: "Host(`admin.borisovai.ru`) && Path(`/auth/cross-sync-accept`)"
+      service: management-ui
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      priority: 200
+
     # Браузер — через Authelia ForwardAuth
     management-ui-tech:
       rule: "Host(`admin.borisovai.tech`)"

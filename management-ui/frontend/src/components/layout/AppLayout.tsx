@@ -1,8 +1,11 @@
 import { Outlet } from 'react-router';
 import { TopBar } from './TopBar';
 import { SectionSidebar } from './SectionSidebar';
+import { useCrossDomainSync } from '../../hooks/useCrossDomainSync';
 
 export function AppLayout() {
+  useCrossDomainSync();
+
   return (
     <div className="h-screen flex flex-col bg-background text-foreground">
       <TopBar />

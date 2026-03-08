@@ -24,6 +24,7 @@ import { gitRoutes } from './routes/git.routes.js';
 import { logoutRoutes } from './routes/logout.routes.js';
 import { agentRoutes } from './routes/agent.routes.js';
 import { monitoringRoutes } from './routes/monitoring.routes.js';
+import { crossSyncApiRoute, crossSyncAcceptRoute } from './routes/cross-sync.routes.js';
 
 export interface AppOptions {
   logger?: boolean;
@@ -66,6 +67,8 @@ export async function buildApp(opts: AppOptions = {}): Promise<FastifyInstance> 
   await app.register(tunnelsRoutes, { prefix: '/api/tunnels' });
   await app.register(analyticsRoutes, { prefix: '/api/analytics' });
   await app.register(analyticsSsoBridgeRoute); // Top-level: Traefik routes /sso-bridge here
+  await app.register(crossSyncApiRoute, { prefix: '/api/auth' }); // Protected: generate sync token
+  await app.register(crossSyncAcceptRoute); // Unprotected: accept token, set cookie
   await app.register(ruProxyRoutes, { prefix: '/api/ru-proxy' });
   await app.register(filesRoutes, { prefix: '/api/files' });
   await app.register(gitRoutes, { prefix: '/api/git' });
