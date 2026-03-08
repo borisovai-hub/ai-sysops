@@ -17,6 +17,8 @@ import {
   type NotifierConfig,
   type UpdateNotifierRequest,
 } from '../lib/authelia.js';
+import { isAutheliaGitOps } from '../config/env.js';
+import { commitConfigChange, pushConfigChanges } from '../lib/gitops.js';
 import { sanitizeString, isValidAutheliaUsername } from '../lib/sanitize.js';
 
 export interface UserListItem {
@@ -177,9 +179,19 @@ export async function applyToConfig(): Promise<{ applied: number }> {
     }
   }
 
-  writeAutheliaUsers(users);
-  writeUserMailboxes(mailboxes);
-  restartAuthelia();
+  const usersPath = writeAutheliaUsers(users);
+  const mailboxesPath = writeUserMailboxes(mailboxes);
+
+  if (isAutheliaGitOps()) {
+    // GitOps: commit + push changes to config repo
+    await commitConfigChange(
+      [usersPath, mailboxesPath],
+      `authelia: update ${rows.length} user(s)`,
+    );
+    await pushConfigChanges(usersPath);
+  } else {
+    restartAuthelia();
+  }
 
   return { applied: rows.length };
 }

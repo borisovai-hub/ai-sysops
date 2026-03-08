@@ -40,6 +40,25 @@ export async function commitConfigChange(
 }
 
 /**
+ * Push config changes to remote — auto-selects the correct repo.
+ */
+export async function pushConfigChanges(
+  filePath: string,
+  remote = 'origin',
+): Promise<{ success: boolean; detail: string }> {
+  const { git } = selectRepo(filePath);
+  const status = await git.status();
+  const branch = status.current || 'main';
+  try {
+    await git.push(remote, branch);
+    return { success: true, detail: `Pushed to ${remote}/${branch}` };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, detail: message };
+  }
+}
+
+/**
  * Revert a commit by hash using `git revert --no-edit`.
  * Returns the new revert commit hash.
  */
