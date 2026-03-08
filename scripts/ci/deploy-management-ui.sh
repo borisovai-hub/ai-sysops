@@ -141,7 +141,7 @@ Environment=SERVER_NAME=contabo-sm-139
 Environment=CONFIG_REPO_DIR=/opt/server-configs
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/etc/management-ui /etc/authelia /var/log /var/lib/management-ui /opt/server-configs
+ReadWritePaths=/etc/management-ui /etc/authelia /etc/frp /var/log /var/lib/management-ui /opt/server-configs
 PrivateTmp=true
 
 [Install]
@@ -154,6 +154,12 @@ fi
 # Доступ к /etc/authelia/ для чтения users_database.yml
 if [ -d /etc/authelia ]; then
     chmod 711 /etc/authelia
+fi
+
+# Доступ к /etc/frp/ для чтения frps.toml (мониторинг)
+if [ -d /etc/frp ]; then
+    chmod 711 /etc/frp
+    chmod 644 /etc/frp/frps.toml 2>/dev/null || true
 fi
 
 # --- Перезапуск ---
