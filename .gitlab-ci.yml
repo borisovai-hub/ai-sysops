@@ -41,6 +41,8 @@ sync:configs:
         echo "Клонирование config repo..."
         git clone "$CONFIG_REPO_URL" "$CONFIG_REPO"
       fi
+      # Ensure management-ui user can read config files
+      chmod -R o+rX "$CONFIG_REPO"
       echo "Config repo: $(git -C "$CONFIG_REPO" log -1 --oneline)"
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
