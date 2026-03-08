@@ -36,7 +36,7 @@ export function RuProxyPage() {
   const [formError, setFormError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  const isOnline = status?.status === 'running' || status?.status === 'ok';
+  const isOnline = !!(status?.reachable || status?.ok || status?.status === 'running');
   const domainCount = domains?.length ?? 0;
 
   const openDialog = () => {
