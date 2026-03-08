@@ -17,7 +17,7 @@ import { contentRoutes } from './routes/content.routes.js';
 import { usersRoutes } from './routes/users.routes.js';
 import { mailuRoutes } from './routes/mailu.routes.js';
 import { tunnelsRoutes } from './routes/tunnels.routes.js';
-import { analyticsRoutes } from './routes/analytics.routes.js';
+import { analyticsRoutes, analyticsSsoBridgeRoute } from './routes/analytics.routes.js';
 import { ruProxyRoutes } from './routes/ru-proxy.routes.js';
 import { filesRoutes } from './routes/files.routes.js';
 import { gitRoutes } from './routes/git.routes.js';
@@ -65,6 +65,7 @@ export async function buildApp(opts: AppOptions = {}): Promise<FastifyInstance> 
   await app.register(mailuRoutes, { prefix: '/api/mailu' });
   await app.register(tunnelsRoutes, { prefix: '/api/tunnels' });
   await app.register(analyticsRoutes, { prefix: '/api/analytics' });
+  await app.register(analyticsSsoBridgeRoute); // Top-level: Traefik routes /sso-bridge here
   await app.register(ruProxyRoutes, { prefix: '/api/ru-proxy' });
   await app.register(filesRoutes, { prefix: '/api/files' });
   await app.register(gitRoutes, { prefix: '/api/git' });

@@ -3,6 +3,27 @@ import { loadInstallConfig, buildDomainsList } from '../config/env.js';
 import { execCommandSafe } from '../lib/exec.js';
 
 /**
+ * Login to Umami and return auth token (for SSO bridge).
+ */
+export async function getUmamiAuthToken(): Promise<string> {
+  const installConfig = loadInstallConfig();
+  const umamiPort = installConfig.umami_port || 3001;
+  // umami_admin_password из install-config.json или дефолт
+  const umamiPassword = (installConfig as Record<string, unknown>).umami_admin_password as string || 'umami';
+
+  const resp = await axios.post(`http://127.0.0.1:${umamiPort}/api/auth/login`, {
+    username: 'admin',
+    password: umamiPassword,
+  }, { timeout: 5000 });
+
+  const token = resp.data?.token;
+  if (!token) {
+    throw new Error('Umami auth token not received');
+  }
+  return token as string;
+}
+
+/**
  * Get Umami Analytics status.
  */
 export async function getAnalyticsStatus(): Promise<Record<string, unknown>> {
