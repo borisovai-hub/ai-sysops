@@ -11,7 +11,19 @@ function readRecordsFile(): DnsRecord[] {
   const path = getDnsRecordsPath();
   if (!path || !existsSync(path)) return [];
   try {
-    return JSON.parse(readFileSync(path, 'utf-8'));
+    const records: DnsRecord[] = JSON.parse(readFileSync(path, 'utf-8'));
+    // Ensure every record has an id (legacy records may lack one)
+    let needsWrite = false;
+    for (const r of records) {
+      if (!r.id) {
+        r.id = randomUUID().slice(0, 8);
+        needsWrite = true;
+      }
+    }
+    if (needsWrite) {
+      writeFileSync(path, JSON.stringify(records, null, 2), 'utf-8');
+    }
+    return records;
   } catch {
     return [];
   }

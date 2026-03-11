@@ -40,7 +40,9 @@ export function isValidAutheliaUsername(name: string): boolean {
  * Returns null if the resolved path escapes the root (path traversal protection).
  */
 export function safePath(root: string, userPath: string): string | null {
-  const resolved = resolve(root, userPath || '');
+  // Strip leading slashes so resolve treats it as relative to root
+  const relative = (userPath || '').replace(/^\/+/, '');
+  const resolved = resolve(root, relative);
   if (!resolved.startsWith(root)) return null;
   return resolved;
 }
