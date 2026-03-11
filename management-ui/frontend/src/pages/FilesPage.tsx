@@ -34,6 +34,9 @@ export function FilesPage() {
 
   const segments = currentPath.split('/').filter(Boolean);
 
+  const buildPath = (name: string) =>
+    currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
+
   const navigateTo = (path: string) => setCurrentPath(path);
 
   const handleBreadcrumb = (index: number) => {
@@ -140,7 +143,7 @@ export function FilesPage() {
                     {f.type === 'directory' ? (
                       <button
                         className="font-medium hover:underline text-left"
-                        onClick={() => navigateTo(f.path)}
+                        onClick={() => navigateTo(buildPath(f.name))}
                       >
                         {f.name}
                       </button>
@@ -156,7 +159,7 @@ export function FilesPage() {
                   {f.modified ? <RelativeTime date={f.modified} /> : '---'}
                 </TableCell>
                 <TableCell>
-                  <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(f.path)}>
+                  <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(buildPath(f.name))}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </TableCell>

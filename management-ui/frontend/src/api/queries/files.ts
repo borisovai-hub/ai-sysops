@@ -20,8 +20,8 @@ export function useFileBrowse(path: string) {
   return useQuery({
     queryKey: ['files', 'browse', path],
     queryFn: () =>
-      api.get<{ files: FileEntry[] }>(`/api/files/browse?path=${encodeURIComponent(path)}`)
-        .then(r => r.files),
+      api.get<{ path: string; items: FileEntry[] }>(`/api/files/browse?path=${encodeURIComponent(path)}`)
+        .then(r => r.items),
     staleTime: 60_000,
     enabled: !!path,
   });
