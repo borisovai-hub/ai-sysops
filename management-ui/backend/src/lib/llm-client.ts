@@ -210,10 +210,11 @@ export class ClaudeCLIClient {
       // Удаляем API key чтобы CLI использовал подписку
       delete env.ANTHROPIC_API_KEY;
 
-      const proc = spawn('claude', ['-p', prompt, '--output-format', 'json', '--model', this.model], {
+      // Промпт передаём через stdin чтобы избежать проблем
+      // с переносами строк и спецсимволами в аргументах shell
+      const proc = spawn('claude', ['-p', '-', '--output-format', 'json', '--model', this.model], {
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
       });
 
       let stdout = '';
@@ -231,6 +232,10 @@ export class ClaudeCLIClient {
       });
 
       proc.on('error', reject);
+
+      // Пишем промпт в stdin и закрываем
+      proc.stdin.write(prompt);
+      proc.stdin.end();
 
       // Таймаут 120 секунд
       setTimeout(() => {
