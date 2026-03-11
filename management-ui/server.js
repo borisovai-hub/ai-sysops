@@ -2083,14 +2083,45 @@ app.get('/sso-bridge', async (req, res) => {
     try {
         const umamiPort = installConfig.umami_port || 3001;
         const umamiPassword = config.umami_admin_password || 'umami';
-        const loginResp = await axios.post(`http://127.0.0.1:${umamiPort}/api/auth/login`, {
-            username: 'admin',
-            password: umamiPassword
-        }, { timeout: 5000 });
+        
+        console.log('[SSO Bridge] Попытка авторизации в Umami...');
+        console.log('[SSO Bridge] Порт:', umamiPort);
+        console.log('[SSO Bridge] Пользователь: admin');
+        
+        const loginResp = await axios.post(
+            `http://127.0.0.1:${umamiPort}/api/auth/login`,
+            {
+                username: 'admin',
+                password: umamiPassword
+            },
+            { 
+                timeout: 5000,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+            }
+        );
+        
+        console.log('[SSO Bridge] Ответ Umami:', loginResp.status);
+        console.log('[SSO Bridge] Данные ответа:', JSON.stringify(loginResp.data));
+        
         const token = loginResp.data.token;
         if (!token) {
-            return res.status(500).send('Umami SSO: токен не получен');
+            console.error('[SSO Bridge] Токен не получен, данные:', loginResp.data);
+            return res.status(500).send(`
+                <h1>Umami SSO: токен не получен</h1>
+                <p>Проверьте что admin пользователь создан в Umami:</p>
+                <ul>
+                    <li>Откройте <a href="https://analytics.dev.borisovai.ru">https://analytics.dev.borisovai.ru</a></li>
+                    <li>Создайте admin пользователя с паролем из config.json</li>
+                    <li>Или измените umami_admin_password в /etc/management-ui/config.json</li>
+                </ul>
+                <p>Текущий пароль из config: ${umamiPassword}</p>
+                <p>Ответ от Umami: <pre>${JSON.stringify(loginResp.data, null, 2)}</pre></p>
+            `);
         }
+        
         // Umami хранит auth в localStorage: key="umami.auth", value=JSON.stringify(token)
         const tokenJson = JSON.stringify(token);
         res.send(`<!DOCTYPE html>
@@ -2099,12 +2130,57 @@ app.get('/sso-bridge', async (req, res) => {
 <script>
 try {
   localStorage.setItem("umami.auth", ${JSON.stringify(tokenJson)});
-} catch(e) { console.error("SSO storage error:", e); }
+  console.log("Umami auth token сохранен");
+} catch(e) { 
+  console.error("SSO storage error:", e);
+  alert("Ошибка сохранения токена: " + e.message);
+}
+console.log("Редирект на dashboard...");
 window.location.replace("/");
 </script></body></html>`);
     } catch (error) {
-        console.error('Umami SSO bridge ошибка:', error.message);
-        res.status(500).send('SSO вход не удался: ' + error.message);
+        console.error('[SSO Bridge] Ошибка:', error.message);
+        if (error.response) {
+            console.error('[SSO Bridge] Статус:', error.response.status);
+            console.error('[SSO Bridge] Данные:', error.response.data);
+        }
+        
+        const umamiPort = installConfig.umami_port || 3001;
+        const umamiPassword = config.umami_admin_password || 'umami';
+        
+        res.status(500).send(`
+            <h1>SSO вход не удался</h1>
+            <p>Ошибка: ${error.message}</p>
+            <hr>
+            <h3>Возможные причины:</h3>
+            <ul>
+                <li>Umami контейнер не запущен (проверьте: docker ps | grep umami)</li>
+                <li>Неверный порт (ожидается: ${umamiPort})</li>
+                <li>Admin пользователь не создан в Umami</li>
+                <li>Неверный пароль admin пользователя</li>
+                <li>Umami API изменился или недоступен</li>
+            </ul>
+            <hr>
+            <h3>Инструкция по исправлению:</h3>
+            <ol>
+                <li>Проверьте что Umami запущен:
+                    <pre>docker ps | grep umami</pre>
+                    <pre>curl http://127.0.0.1:${umamiPort}/api/heartbeat</pre>
+                </li>
+                <li>Откройте Umami и создайте admin пользователя:
+                    <pre>https://analytics.dev.borisovai.ru</pre>
+                </li>
+                <li>Обновите пароль в config.json:
+                    <pre>umami_admin_password: "ваш_пароль"</pre>
+                    <pre>systemctl restart management-ui</pre>
+                </li>
+            </ol>
+            <hr>
+            <h3>Детали ошибки:</h3>
+            <pre>${error.message}</pre>
+            ${error.response ? `<p>Статус: ${error.response.status}</p><pre>${JSON.stringify(error.response.data, null, 2)}</pre>` : ''}
+            <p>Используемый пароль: ${umamiPassword}</p>
+        `);
     }
 });
 
