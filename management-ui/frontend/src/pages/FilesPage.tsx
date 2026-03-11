@@ -22,7 +22,7 @@ function formatSize(bytes: number): string {
 }
 
 export function FilesPage() {
-  const [currentPath, setCurrentPath] = useState('/opt/management-ui');
+  const [currentPath, setCurrentPath] = useState('/');
   const { data: files, isLoading } = useFileBrowse(currentPath);
   const deleteFile = useDeleteFile();
   const createDir = useCreateDir();
