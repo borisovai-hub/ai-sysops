@@ -1,7 +1,7 @@
 http:
   routers:
     trend-analisis:
-      rule: Host(`cascade.dev.borisovai.tech`) || Host(`cascade.dev.borisovai.ru`)
+      rule: Host(`cascade.dev.borisovai.tech`) || Host(`cascade.dev.borisovai.ru`) || Host(`trendomius.ru`)
       service: trend-analisis
       entryPoints:
         - websecure
