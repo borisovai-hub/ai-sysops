@@ -18,7 +18,7 @@ AI SysOps is a complete DevOps toolkit that deploys and manages a full stack of 
 | **n8n** | Workflow automation |
 | **Mailu** | Full-featured mail server |
 | **frp** | Self-hosted tunneling (ngrok alternative) |
-| **RU Proxy** | Regional reverse proxy (Caddy) for .ru domains |
+| **Regional Proxy** | Regional reverse proxy (Caddy) for geo-routing |
 | **DNS API** | Local DNS management via dnsmasq |
 
 ## Architecture
@@ -28,9 +28,9 @@ AI SysOps is a complete DevOps toolkit that deploys and manages a full stack of 
                             |
                    +--------+--------+
                    |                 |
-              .ru domains       .tech domains
+            Regional domains    Primary domain
                    |                 |
-            RU Proxy (Caddy)         |
+            Regional Proxy (Caddy)   |
                    |                 |
                    +--------+--------+
                             |
@@ -46,7 +46,7 @@ AI SysOps is a complete DevOps toolkit that deploys and manages a full stack of 
 
 ### Multi-Domain Support
 
-All services are accessible via two base domains (e.g. `borisovai.ru` + `borisovai.tech`). Traefik routes both, DNS records are created for each, and the RU Proxy handles `.ru` traffic through a regional VPS.
+All services are accessible via multiple base domains (e.g. `example.com` + `example.ru`). Base domains are configured in `/etc/install-config.json`. Traefik routes all domains, DNS records are created for each, and an optional Regional Proxy handles traffic through a geographically closer VPS.
 
 ## Tech Stack
 
@@ -60,7 +60,7 @@ All services are accessible via two base domains (e.g. `borisovai.ru` + `borisov
 ### Infrastructure
 
 - **CI/CD**: GitLab CI with shell runners, GitOps auto-deploy on push to main
-- **Reverse Proxy**: Traefik v3 (main) + Caddy (RU regional proxy)
+- **Reverse Proxy**: Traefik v3 (main) + Caddy (optional regional proxy)
 - **SSO**: Authelia with OIDC + ForwardAuth middleware
 - **DNS**: dnsmasq + custom DNS API (port 5353)
 - **Config Management**: Separate GitOps config repo (`tools/server-configs`)
@@ -79,7 +79,7 @@ ai-sysops/
 │   ├── single-machine/         # Server install scripts (idempotent)
 │   ├── ci/                     # CI/CD deploy scripts
 │   └── dns-api/                # DNS API server (dnsmasq)
-├── ru-proxy/                   # RU regional proxy (Caddy + Node.js API)
+├── ru-proxy/                   # Regional proxy (Caddy + Node.js API)
 ├── config/
 │   ├── single-machine/         # Config templates (GitOps)
 │   └── frpc-template/          # frp client config template
