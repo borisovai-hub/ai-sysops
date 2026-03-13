@@ -1,9 +1,0 @@
-http:
-  routers:
-    product-lab:
-      rule: Host(`product-lab.dev.borisovai.tech`) || Host(`product-lab.dev.borisovai.ru`)
-      service: trend-analisis
-      entryPoints:
-        - websecure
-      tls:
-        certResolver: letsencrypt

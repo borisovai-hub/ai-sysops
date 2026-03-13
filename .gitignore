@@ -16,6 +16,10 @@ id_rsa*
 # Отрендеренные конфиги (содержат секреты, создаются CI)
 rendered-configs/
 
+# Стенд-специфичные конфиги (перенесены в tools/server-configs)
+config/contabo-sm-139/
+config/servers/
+
 # Node.js
 node_modules/
 dist/

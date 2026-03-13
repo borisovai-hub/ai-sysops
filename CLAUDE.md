@@ -25,7 +25,7 @@ templates/                    # Шаблоны конфигов с {{placeholder
 
 - **CI**: `sync:configs` job клонирует/обновляет config repo в `/opt/server-configs/`
 - **Env vars**: `SERVER_NAME` (имя сервера), `CONFIG_REPO_DIR` (путь к config repo)
-- **Fallback**: Если config repo не найден, скрипты ищут `config/*/` в borisovai-admin (обратная совместимость)
+- **Fallback**: Если config repo не найден, скрипты используют шаблоны из `config/single-machine/`
 - **Management UI**: `env.ts` → `findServerConfigDir()` с 4-уровневым fallback
 
 ## Стек и соглашения
@@ -93,7 +93,7 @@ templates/                    # Шаблоны конфигов с {{placeholder
 2. **Декомпозиция** — разбивать задачи на независимые подзадачи, которые можно выполнять параллельно
 3. **Контекст** — каждый агент должен получать минимально необходимый контекст: пути файлов, имена функций, формат данных
 4. **Идемпотентность** — все операции (создание DNS, Traefik, CI) должны быть идемпотентными
-5. **Обратная совместимость** — изменения в server.js не должны ломать существующие endpoints (`/api/services`, `/api/dns`)
+5. **Обратная совместимость** — изменения в API не должны ломать существующие endpoints
 
 ## Мульти-домен (base_domains)
 
@@ -101,7 +101,7 @@ templates/                    # Шаблоны конфигов с {{placeholder
 
 - **Источник**: `/etc/install-config.json` → `base_domains: "borisovai.ru,borisovai.tech"`
 - **Bash-скрипты**: `common.sh` → `get_base_domains()`, `build_service_domains()`, `create_dns_records_for_domains()`
-- **server.js**: читает `/etc/install-config.json` → `getBaseDomains()`, `buildAllDomains(prefix)`, `createDnsRecordsForAllDomains()`
+- **Backend**: `env.ts` → `getBaseDomains()`, `buildAllDomains(prefix)`
 - **Traefik**: правила генерируются с `||` — `Host(`slug.borisovai.ru`) || Host(`slug.borisovai.tech`)`
 - **DNS**: записи создаются для каждого base_domain через DNS API
 - **Управление**: `scripts/single-machine/manage-base-domains.sh` (add/remove/list/site/apply)
@@ -129,7 +129,7 @@ templates/                    # Шаблоны конфигов с {{placeholder
 
 - **План**: [docs/plans/PLAN_ONE_CLICK_PUBLISH.md](docs/plans/PLAN_ONE_CLICK_PUBLISH.md)
 - **ТЗ**: [docs/plans/TZ_ONE_CLICK_PUBLISH.md](docs/plans/TZ_ONE_CLICK_PUBLISH.md)
-- **UI**: `management-ui/public/projects.html`
+- **UI**: React frontend → страница Projects
 - **API**: `POST /api/publish/projects`, `GET /api/publish/projects`, `DELETE /api/publish/projects/:slug`, `PUT /api/publish/projects/:slug/update-ci`
 - **Шаблоны CI**: `management-ui/templates/*.gitlab-ci.yml` (frontend, backend, fullstack, docs, validate, product)
 - **Сценарии**: deploy (DNS + Traefik + CI + directories), docs (Strapi + CI + directories), infra (CI + Strapi optional), product (Strapi + CI + directories + CI variables)
@@ -159,7 +159,7 @@ templates/                    # Шаблоны конфигов с {{placeholder
 - **Домены**: `auth.borisovai.ru`, `auth.borisovai.tech`
 - **Порт**: 9091 (localhost)
 - **OIDC в Management UI**: `config.json` → секция `oidc` (enabled, issuer, base_url, client_id, client_secret, cookie_secret)
-- **Dual-mode**: `OIDC_ENABLED` flag в server.js — OIDC (production) или legacy session (dev)
+- **Dual-mode**: OIDC (production) или legacy session (dev)
 - **Защищённые сервисы**: management-ui, n8n, mailu (middleware `authelia@file`)
 
 ### frp Tunneling
@@ -173,7 +173,7 @@ Self-hosted туннелирование (замена ngrok) — проброс
 - **Клиент-шаблон**: `config/frpc-template/frpc.toml`
 - **Порты**: 17420 (control), 17480 (vhost HTTP за Traefik), 17490 (dashboard localhost)
 - **Systemd**: `frps.service`
-- **UI**: `management-ui/public/tunnels.html`
+- **UI**: React frontend → страница Tunnels
 - **API**: `GET /api/tunnels/status`, `GET /api/tunnels/proxies`, `GET /api/tunnels/config`, `GET /api/tunnels/client-config`
 
 ### Umami Analytics
@@ -188,7 +188,7 @@ Self-hosted веб-аналитика для мониторинга трафик
 - **Traefik**: `/etc/traefik/dynamic/analytics.yml` (раздельные роутеры для каждого домена)
 - **Порт**: 3001 (localhost)
 - **Домены**: analytics.dev.borisovai.ru, analytics.dev.borisovai.tech
-- **UI**: `management-ui/public/analytics.html`
+- **UI**: React frontend → страница Analytics
 - **API**: `GET /api/analytics/status`
 - **CI/CD**: Автоматическая установка Docker (`install:docker` job) и Umami (`install:umami` job)
 - **Деплой**: `scripts/ci/deploy-umami.sh` (инкрементальный, обновление образов и конфигов)
@@ -203,7 +203,7 @@ Self-hosted веб-аналитика для мониторинга трафик
 - **Caddy**: reverse proxy с автоматическими Let's Encrypt сертификатами
 - **Management API**: `ru-proxy/server.js` — CRUD доменов, генерация Caddyfile, reload Caddy (порт 3100)
 - **Install скрипт**: `scripts/single-machine/install-ru-proxy.sh` (запускается на RU VPS, не на Contabo)
-- **UI**: `management-ui/public/ru-proxy.html`
+- **UI**: React frontend → страница RU Proxy
 - **API Management UI**: `GET/POST/PUT/DELETE /api/ru-proxy/domains`, `GET /api/ru-proxy/status`, `POST /api/ru-proxy/reload`
 - **Конфиг Contabo**: `install-config.json` → `ru_proxy_api_url`, `ru_proxy_api_token`
 - **Важно**: Caddy использует `tls_insecure_skip_verify` для бэкенда — Traefik на Contabo не имеет LE-сертификатов для .ru (DNS указывает на RU VPS)
@@ -218,12 +218,9 @@ Self-hosted веб-аналитика для мониторинга трафик
 
 ## Ключевые файлы
 
-- `management-ui/server.js` — основной сервер, все API endpoints (~1150 строк)
-- `management-ui/public/index.html` — UI сервисов (отображает все роутеры из Traefik YAML)
-- `management-ui/public/dns.html` — UI DNS
-- `management-ui/public/projects.html` — UI регистрации проектов
-- `management-ui/public/tunnels.html` — UI управления туннелями (frp)
-- `management-ui/public/tokens.html` — UI управления bearer-токенами
+- `management-ui/backend/` — Fastify v5 backend (14 route modules, 11 lib modules, 12 services)
+- `management-ui/frontend/` — React 19 + Vite + Tailwind v4 frontend (11 страниц)
+- `management-ui/shared/` — общие типы и утилиты
 - `management-ui/templates/*.gitlab-ci.yml` — CI-шаблоны для целевых проектов
 - `scripts/single-machine/install-management-ui.sh` — установка (копирует management-ui/ → /opt/management-ui/)
 - `scripts/single-machine/configure-traefik.sh` — генерация Traefik-конфигов для всех сервисов
