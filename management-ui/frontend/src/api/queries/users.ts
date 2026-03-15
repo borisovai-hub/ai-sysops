@@ -5,15 +5,18 @@ export interface AutheliaUser {
   username: string;
   displayname: string;
   email: string;
+  externalEmail: string;
   groups: string[];
+  disabled: boolean;
+  authPolicy: 'one_factor' | 'two_factor';
 }
 
-export interface Notification {
-  id: string;
+export interface ParsedNotification {
+  date: string;
+  recipientEmail: string;
+  recipientName: string;
   subject: string;
   body: string;
-  recipient: string;
-  sent_at: string;
 }
 
 export function useAutheliaUsers() {
@@ -24,15 +27,11 @@ export function useAutheliaUsers() {
   });
 }
 
-export function useNotifications(username?: string) {
+export function useNotifications() {
   return useQuery({
-    queryKey: ['authelia', 'notifications', username],
-    queryFn: () => {
-      const params = username ? `?username=${encodeURIComponent(username)}` : '';
-      return api.get<{ notifications: Notification[] }>(`/api/authelia/notifications${params}`)
-        .then(r => r.notifications);
-    },
-    staleTime: 60_000,
+    queryKey: ['authelia', 'notifications'],
+    queryFn: () => api.get<{ notifications: ParsedNotification[] }>('/api/authelia/notifications').then(r => r.notifications),
+    staleTime: 30_000,
   });
 }
 

@@ -25,9 +25,11 @@ export interface UserListItem {
   username: string;
   displayname: string;
   email: string;
+  externalEmail: string;
   mailbox: string;
   groups: string[];
   disabled: boolean;
+  authPolicy: 'one_factor' | 'two_factor';
 }
 
 /**
@@ -40,9 +42,11 @@ export async function listUsers(): Promise<UserListItem[]> {
     username: r.username,
     displayname: r.displayname,
     email: r.email,
+    externalEmail: r.externalEmail || '',
     mailbox: r.mailbox || `${r.username}@borisovai.ru`,
     groups: JSON.parse(r.groups || '[]'),
     disabled: r.disabled,
+    authPolicy: (r.authPolicy as 'one_factor' | 'two_factor') || 'two_factor',
   }));
 }
 
@@ -54,7 +58,9 @@ export async function createUser(params: {
   password: string;
   displayname?: string;
   email?: string;
+  externalEmail?: string;
   groups?: string[];
+  authPolicy?: 'one_factor' | 'two_factor';
   mailbox?: string;
 }): Promise<void> {
   const username = sanitizeString(params.username);
@@ -78,9 +84,11 @@ export async function createUser(params: {
     username,
     displayname: sanitizeString(params.displayname) || username,
     email: sanitizeString(params.email) || '',
+    externalEmail: sanitizeString(params.externalEmail) || null,
     passwordHash,
     groups: JSON.stringify(Array.isArray(params.groups) ? params.groups.map(sanitizeString).filter(Boolean) : []),
     disabled: false,
+    authPolicy: params.authPolicy || 'two_factor',
     mailbox: sanitizeString(params.mailbox) || null,
     createdAt: now,
     updatedAt: now,
@@ -92,7 +100,7 @@ export async function createUser(params: {
  */
 export async function updateUser(
   username: string,
-  params: { displayname?: string; email?: string; groups?: string[]; disabled?: boolean; mailbox?: string },
+  params: { displayname?: string; email?: string; externalEmail?: string; groups?: string[]; disabled?: boolean; authPolicy?: 'one_factor' | 'two_factor'; mailbox?: string },
 ): Promise<void> {
   const db = getDb();
   const existing = await db.select().from(autheliaUsers).where(eq(autheliaUsers.username, username));
@@ -106,7 +114,9 @@ export async function updateUser(
   if (params.groups !== undefined) {
     updates.groups = JSON.stringify(Array.isArray(params.groups) ? params.groups.map(sanitizeString).filter(Boolean) : []);
   }
+  if (params.externalEmail !== undefined) updates.externalEmail = sanitizeString(params.externalEmail) || null;
   if (params.disabled !== undefined) updates.disabled = !!params.disabled;
+  if (params.authPolicy !== undefined) updates.authPolicy = params.authPolicy;
   if (params.mailbox !== undefined) updates.mailbox = sanitizeString(params.mailbox) || null;
 
   await db.update(autheliaUsers).set(updates).where(eq(autheliaUsers.username, username));
@@ -218,12 +228,14 @@ export async function syncFromConfig(): Promise<{ imported: number }> {
         passwordHash: data.password,
         groups: JSON.stringify(data.groups || []),
         disabled: !!data.disabled,
+        authPolicy: 'two_factor',
         mailbox: configMailboxes[username] || null,
         createdAt: now,
         updatedAt: now,
       });
       imported++;
     } else {
+      // Preserve externalEmail and authPolicy from DB (not in Authelia config)
       await db.update(autheliaUsers).set({
         displayname: data.displayname || username,
         email: data.email || '',

@@ -82,16 +82,20 @@ export const createUserSchema = z.object({
   displayname: z.string().optional().default(''),
   displayName: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')),
+  externalEmail: z.string().email().optional().or(z.literal('')),
   password: z.string().min(8, 'Минимум 8 символов'),
   groups: z.array(z.string()).default([]),
+  authPolicy: z.enum(['one_factor', 'two_factor']).default('two_factor'),
   mailbox: z.string().optional(),
 });
 
 export const updateUserSchema = z.object({
   displayname: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')),
+  externalEmail: z.string().email().optional().or(z.literal('')),
   groups: z.array(z.string()).optional(),
   disabled: z.boolean().optional(),
+  authPolicy: z.enum(['one_factor', 'two_factor']).optional(),
   mailbox: z.string().optional(),
 });
 

@@ -6,13 +6,21 @@ interface CreateUserInput {
   displayname?: string;
   displayName?: string;
   email: string;
+  externalEmail?: string;
   password: string;
   groups?: string[];
+  authPolicy?: 'one_factor' | 'two_factor';
 }
 
 interface UpdateUserInput {
   username: string;
-  data: { displayname?: string; email?: string; groups?: string[] };
+  data: {
+    displayname?: string;
+    email?: string;
+    externalEmail?: string;
+    groups?: string[];
+    authPolicy?: 'one_factor' | 'two_factor';
+  };
 }
 
 interface ChangePasswordInput {
