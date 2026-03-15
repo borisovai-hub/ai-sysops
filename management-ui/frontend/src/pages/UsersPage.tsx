@@ -240,10 +240,10 @@ export function UsersPage() {
         </DialogHeader>
         <div className="space-y-3">
           <Input
-            placeholder="Имя пользователя *"
+            placeholder="Имя пользователя * (a-z, 0-9, ._-)"
             value={form.username}
             disabled={!!editTarget}
-            onChange={(e) => setForm({ ...form, username: e.target.value })}
+            onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, '') })}
           />
           <Input
             placeholder="Отображаемое имя"

@@ -1,14 +1,18 @@
 import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
-import { ZodError } from 'zod';
 import { AppError } from '@management-ui/shared';
+
+// Check by class name to handle multiple zod instances in monorepo
+function isZodError(error: unknown): error is { errors: Array<{ path: (string | number)[]; message: string }> } {
+  return error != null && typeof error === 'object' && (error as Record<string, unknown>).name === 'ZodError';
+}
 
 export function errorHandler(
   error: FastifyError,
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  // Zod validation errors
-  if (error instanceof ZodError) {
+  // Zod validation errors (handles multiple zod instances in monorepo)
+  if (isZodError(error)) {
     return reply.status(400).send({
       error: 'Ошибка валидации',
       details: error.errors.map(e => ({
