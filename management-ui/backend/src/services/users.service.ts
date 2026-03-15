@@ -176,10 +176,12 @@ export async function applyToConfig(): Promise<{ applied: number }> {
   const mailboxes: Record<string, string> = {};
 
   for (const r of rows) {
+    // Если задан внешний email — Authelia шлёт TOTP-ссылку на него
+    const autheliaEmail = r.externalEmail || r.email;
     users[r.username] = {
       disabled: r.disabled,
       displayname: r.displayname,
-      email: r.email,
+      email: autheliaEmail,
       password: r.passwordHash,
       groups: JSON.parse(r.groups || '[]'),
     };
