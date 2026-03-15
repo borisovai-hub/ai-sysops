@@ -40,7 +40,11 @@ sync:configs:
         cd "$CONFIG_REPO"
         # Сохраняем локальные изменения (GitOps edits) и обновляем
         git stash --include-untracked 2>/dev/null || true
-        git pull --ff-only origin main
+        git pull --rebase origin main || {
+          echo "Rebase не удался — сброс к remote версии"
+          git rebase --abort 2>/dev/null || true
+          git reset --hard origin/main
+        }
         git stash pop 2>/dev/null || echo "Нет stashed изменений или конфликт — используем remote версию"
       else
         echo "Клонирование config repo..."
