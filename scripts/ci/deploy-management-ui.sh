@@ -69,18 +69,21 @@ else
     echo "ПРЕДУПРЕЖДЕНИЕ: rendered config не найден, конфиг не обновлён"
 fi
 
-# --- Сборка monorepo ---
-echo "Установка зависимостей..."
+# --- Зависимости и сборка ---
 cd "$APP_DIR"
-npm ci
 
-# Очистка стейл build-артефактов (rsync --exclude не удаляет существующие)
-echo "Очистка стейл build-кэша..."
-rm -rf shared/dist backend/dist frontend/dist
-rm -f shared/tsconfig.tsbuildinfo backend/tsconfig.tsbuildinfo frontend/tsconfig.tsbuildinfo
-
-echo "Сборка monorepo (shared -> frontend -> backend)..."
-npm run build
+# Проверяем, есть ли предсобранные артефакты из CI build stage
+if [ -f "backend/dist/index.js" ] && [ -d "frontend/dist/assets" ] && [ -d "shared/dist" ]; then
+    echo "Используем предсобранные артефакты из CI build stage"
+    echo "Установка production-зависимостей..."
+    npm ci --omit=dev 2>/dev/null || npm ci
+else
+    echo "Артефакты не найдены, собираем локально..."
+    npm ci
+    rm -rf shared/dist backend/dist frontend/dist
+    rm -f shared/tsconfig.tsbuildinfo backend/tsconfig.tsbuildinfo frontend/tsconfig.tsbuildinfo
+    npm run build
+fi
 
 # --- Создание system user (до всех chown операций) ---
 if ! id -u management-ui > /dev/null 2>&1; then

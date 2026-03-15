@@ -8,6 +8,7 @@
 
 stages:
   - validate
+  - build
   - install
   - deploy
   - verify
@@ -36,7 +37,11 @@ sync:configs:
       if [ -d "$CONFIG_REPO/.git" ]; then
         echo "Обновление config repo..."
         git -C "$CONFIG_REPO" remote set-url origin "$CONFIG_REPO_URL"
-        cd "$CONFIG_REPO" && git pull --ff-only origin main
+        cd "$CONFIG_REPO"
+        # Сохраняем локальные изменения (GitOps edits) и обновляем
+        git stash --include-untracked 2>/dev/null || true
+        git pull --ff-only origin main
+        git stash pop 2>/dev/null || echo "Нет stashed изменений или конфликт — используем remote версию"
       else
         echo "Клонирование config repo..."
         git clone "$CONFIG_REPO_URL" "$CONFIG_REPO"
@@ -49,6 +54,28 @@ sync:configs:
         [ -f "$f" ] && chown management-ui:management-ui "$f" && chmod 664 "$f"
       done
       echo "Config repo: $(git -C "$CONFIG_REPO" log -1 --oneline)"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# Сборка monorepo (shared → backend + frontend)
+build:management-ui:
+  stage: build
+  tags:
+    - deploy-root
+  needs: []
+  script:
+    - cd management-ui
+    - npm ci
+    - rm -rf shared/dist backend/dist frontend/dist
+    - rm -f shared/tsconfig.tsbuildinfo backend/tsconfig.tsbuildinfo
+    - npm run build
+    - echo "Сборка завершена"
+  artifacts:
+    paths:
+      - management-ui/shared/dist/
+      - management-ui/backend/dist/
+      - management-ui/frontend/dist/
+    expire_in: 1 hour
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
@@ -127,7 +154,7 @@ deploy:
   stage: deploy
   tags:
     - deploy-root
-  needs: [install:docker, install:umami, sync:configs]
+  needs: [build:management-ui, install:docker, install:umami, sync:configs]
   script:
     # Рендеринг конфигов из шаблонов + CI Variables
     - bash scripts/ci/render-configs.sh
