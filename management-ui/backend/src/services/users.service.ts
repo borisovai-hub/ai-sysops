@@ -21,6 +21,7 @@ import { isAutheliaGitOps } from '../config/env.js';
 import { commitConfigChange, pushConfigChanges } from '../lib/gitops.js';
 import { sanitizeString, isValidAutheliaUsername } from '../lib/sanitize.js';
 import { syncMailuMailboxes, isMailuConfigured } from '../lib/mailu-api.js';
+import { syncUmamiUsers, isUmamiConfigured } from '../lib/umami-api.js';
 import { logger } from '../lib/logger.js';
 
 export interface UserListItem {
@@ -207,17 +208,29 @@ export async function applyToConfig(): Promise<{ applied: number }> {
     restartAuthelia();
   }
 
-  // Sync mailboxes to Mailu (create missing, update enabled status)
+  // Sync users to downstream services (non-critical — Apply succeeds even if sync fails)
+  const userList = rows.map(r => ({
+    username: r.username,
+    displayname: r.displayname,
+    disabled: r.disabled,
+    groups: JSON.parse(r.groups || '[]') as string[],
+  }));
+
+  // Mailu: create/update mailboxes
   if (isMailuConfigured()) {
     try {
-      const mailuUsers = rows.map(r => ({
-        username: r.username,
-        displayname: r.displayname,
-        disabled: r.disabled,
-      }));
-      await syncMailuMailboxes(mailuUsers);
+      await syncMailuMailboxes(userList);
     } catch (err) {
       logger.warn(`Mailu sync failed (non-critical): ${err}`);
+    }
+  }
+
+  // Umami Analytics: create user accounts
+  if (isUmamiConfigured()) {
+    try {
+      await syncUmamiUsers(userList);
+    } catch (err) {
+      logger.warn(`Umami sync failed (non-critical): ${err}`);
     }
   }
 

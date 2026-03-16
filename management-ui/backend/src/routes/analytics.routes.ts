@@ -14,13 +14,13 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
  */
 export async function analyticsSsoBridgeRoute(fastify: FastifyInstance) {
   fastify.get('/sso-bridge', async (req: FastifyRequest, reply: FastifyReply) => {
-    const remoteUser = req.headers['remote-user'];
+    const remoteUser = req.headers['remote-user'] as string | undefined;
     if (!remoteUser) {
       return reply.status(403).send('Доступ запрещён (требуется аутентификация через Authelia)');
     }
 
     try {
-      const token = await analyticsService.getUmamiAuthToken();
+      const token = await analyticsService.getUmamiAuthToken(remoteUser);
       const tokenJson = JSON.stringify(token);
       reply.header('Content-Type', 'text/html; charset=utf-8');
       return reply.send(`<!DOCTYPE html>

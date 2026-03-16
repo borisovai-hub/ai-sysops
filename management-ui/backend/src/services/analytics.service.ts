@@ -1,14 +1,19 @@
 import axios from 'axios';
 import { loadInstallConfig, buildDomainsList } from '../config/env.js';
 import { execCommandSafe } from '../lib/exec.js';
+import { getUserAuthToken, ensureUmamiUser } from '../lib/umami-api.js';
 
 /**
  * Login to Umami and return auth token (for SSO bridge).
+ * Ensures the user exists in Umami before returning the token.
  */
-export async function getUmamiAuthToken(): Promise<string> {
+export async function getUmamiAuthToken(username?: string): Promise<string> {
+  if (username) {
+    return getUserAuthToken(username);
+  }
+  // Fallback: admin token
   const installConfig = loadInstallConfig();
   const umamiPort = installConfig.umami_port || 3001;
-  // umami_admin_password из install-config.json или дефолт
   const umamiPassword = (installConfig as Record<string, unknown>).umami_admin_password as string || 'umami';
 
   const resp = await axios.post(`http://127.0.0.1:${umamiPort}/api/auth/login`, {
