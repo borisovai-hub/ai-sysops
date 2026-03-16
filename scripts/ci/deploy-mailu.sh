@@ -32,6 +32,32 @@ else
     echo "  [Пропуск] PROXY_AUTH не настроен (Authelia не установлена?)"
 fi
 
+# ============================================================
+# [2/3] API=true (REST API для управления пользователями)
+# ============================================================
+if grep -q "^API=false" "$MAILU_ENV"; then
+    sed -i 's/^API=false/API=true/' "$MAILU_ENV"
+    echo "  [OK] API=true (REST API для Management UI)"
+    UPDATED=1
+elif grep -q "^API=true" "$MAILU_ENV"; then
+    echo "  [Пропуск] API уже true"
+fi
+
+# ============================================================
+# [3/3] Postfix IPv4 only (SPF fix: IPv6 отправка не проходит SPF)
+# ============================================================
+MAILU_DATA_DIR="/opt/mailu"
+POSTFIX_OVERRIDE_DIR="$MAILU_DATA_DIR/overrides/postfix"
+POSTFIX_OVERRIDE="$POSTFIX_OVERRIDE_DIR/postfix.cf"
+if [ ! -f "$POSTFIX_OVERRIDE" ] || ! grep -q "inet_protocols = ipv4" "$POSTFIX_OVERRIDE"; then
+    mkdir -p "$POSTFIX_OVERRIDE_DIR"
+    echo "inet_protocols = ipv4" > "$POSTFIX_OVERRIDE"
+    echo "  [OK] Postfix IPv4 only (SPF fix)"
+    UPDATED=1
+else
+    echo "  [Пропуск] Postfix IPv4 уже настроен"
+fi
+
 # Перезапуск при изменениях
 if [ $UPDATED -eq 1 ]; then
     echo ""
