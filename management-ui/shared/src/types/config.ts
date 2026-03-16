@@ -29,6 +29,9 @@ export interface InstallConfig {
   files_prefix?: string;
   files_middle?: string;
   files_port?: number;
+  mailu_api_url?: string;
+  mailu_api_token?: string;
+  mailu_domain?: string;
   [key: string]: unknown;
 }
 

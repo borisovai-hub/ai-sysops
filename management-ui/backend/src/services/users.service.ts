@@ -20,6 +20,8 @@ import {
 import { isAutheliaGitOps } from '../config/env.js';
 import { commitConfigChange, pushConfigChanges } from '../lib/gitops.js';
 import { sanitizeString, isValidAutheliaUsername } from '../lib/sanitize.js';
+import { syncMailuMailboxes, isMailuConfigured } from '../lib/mailu-api.js';
+import { logger } from '../lib/logger.js';
 
 export interface UserListItem {
   username: string;
@@ -203,6 +205,20 @@ export async function applyToConfig(): Promise<{ applied: number }> {
     await pushConfigChanges(usersPath);
   } else {
     restartAuthelia();
+  }
+
+  // Sync mailboxes to Mailu (create missing, update enabled status)
+  if (isMailuConfigured()) {
+    try {
+      const mailuUsers = rows.map(r => ({
+        username: r.username,
+        displayname: r.displayname,
+        disabled: r.disabled,
+      }));
+      await syncMailuMailboxes(mailuUsers);
+    } catch (err) {
+      logger.warn(`Mailu sync failed (non-critical): ${err}`);
+    }
   }
 
   return { applied: rows.length };
