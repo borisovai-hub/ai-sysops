@@ -5,7 +5,7 @@ import { PanelLeftClose, PanelLeft } from 'lucide-react';
 import {
   Server, Globe, Shield, Activity,
   Package, FileText,
-  Cable, BarChart3, FolderOpen, GitBranch,
+  Cable, BarChart3, CheckSquare, FolderOpen, GitBranch,
   Users, Key, Bot,
 } from 'lucide-react';
 
@@ -29,6 +29,7 @@ const sidebarMap: Record<string, SidebarItem[]> = {
   tools: [
     { label: 'Туннели', path: '/tunnels', icon: Cable },
     { label: 'Аналитика', path: '/analytics', icon: BarChart3 },
+    { label: 'Задачи', path: '/tasks', icon: CheckSquare },
     { label: 'Файлы', path: '/files', icon: FolderOpen },
     { label: 'Git', path: '/git', icon: GitBranch },
   ],

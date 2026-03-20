@@ -31,6 +31,7 @@ templates/                    # Шаблоны конфигов с {{placeholder
 ## Стек и соглашения
 
 - **Management UI**: Fastify v5, React 19 + Vite, Drizzle ORM + SQLite, TypeScript monorepo (shared + backend + frontend)
+- **Vikunja** — self-hosted task planner (Docker, порт 3456), Authelia OIDC + Mailu SMTP
 - **Конфигурация**: JSON файлы в `/etc/management-ui/` (config.json, auth.json, projects.json)
 - **CI-шаблоны**: хранятся в `management-ui/templates/`, при установке копируются в `/opt/management-ui/templates/`
 - **Скрипты**: Bash, совместимы с Debian 11/12 и Ubuntu 20.04/22.04
@@ -120,6 +121,7 @@ templates/                    # Шаблоны конфигов с {{placeholder
 | frps (туннели) | tunnel | *.tunnel.borisovai.ru, *.tunnel.borisovai.tech |
 | Authelia SSO | auth | auth.borisovai.ru, auth.borisovai.tech |
 | Umami Analytics | analytics.dev | analytics.dev.borisovai.ru, analytics.dev.borisovai.tech |
+| Vikunja Tasks | tasks.dev | tasks.dev.borisovai.ru, tasks.dev.borisovai.tech |
 
 ## Реализованные функции
 
@@ -160,7 +162,7 @@ templates/                    # Шаблоны конфигов с {{placeholder
 - **Порт**: 9091 (localhost)
 - **OIDC в Management UI**: `config.json` → секция `oidc` (enabled, issuer, base_url, client_id, client_secret, cookie_secret)
 - **Dual-mode**: OIDC (production) или legacy session (dev)
-- **Защищённые сервисы**: management-ui, n8n, mailu (middleware `authelia@file`)
+- **Защищённые сервисы**: management-ui, n8n, mailu, vikunja (middleware `authelia@file`)
 
 ### frp Tunneling
 
@@ -194,6 +196,25 @@ Self-hosted веб-аналитика для мониторинга трафик
 - **Деплой**: `scripts/ci/deploy-umami.sh` (инкрементальный, обновление образов и конфигов)
 - **Интеграция**: [docs/agents/AGENT_ANALYTICS.md](docs/agents/AGENT_ANALYTICS.md)
 
+### Vikunja Tasks
+
+Self-hosted планировщик задач с календарём, списками, kanban, напоминаниями (Todoist-like).
+
+- **Docker Compose**: Vikunja + SQLite (vikunja/vikunja:latest)
+- **Конфиг**: `/etc/vikunja/docker-compose.yml`, `/etc/vikunja/.env`
+- **БД**: SQLite (файл `vikunja.db` в Docker volume `vikunja-db`)
+- **Traefik**: `/etc/traefik/dynamic/vikunja.yml` (роутеры с `authelia@file`)
+- **Порт**: 3456 (localhost)
+- **Домены**: tasks.dev.borisovai.ru, tasks.dev.borisovai.tech
+- **Авторизация**: Authelia OIDC (client_id=vikunja) + ForwardAuth middleware
+- **Уведомления**: SMTP через Mailu (tasks@borisovai.ru)
+- **CalDAV**: синхронизация с мобильными календарями (DAVx5, iOS)
+- **UI**: React frontend → страница Tasks (Инструменты)
+- **API Management UI**: `GET /api/tasks/status`
+- **CI/CD**: `install:vikunja` job (автоматический) + `deploy-vikunja.sh` (инкрементальный)
+- **Install скрипт**: `scripts/single-machine/install-vikunja.sh` (`--force` для переустановки)
+- **Деплой**: `scripts/ci/deploy-vikunja.sh` (инкрементальный, обновление образов и конфигов)
+
 ### RU Proxy
 
 Российский reverse proxy (Caddy) для .ru доменов — снижение рисков блокировки РКН, улучшение latency для RU пользователей.
@@ -218,8 +239,8 @@ Self-hosted веб-аналитика для мониторинга трафик
 
 ## Ключевые файлы
 
-- `management-ui/backend/` — Fastify v5 backend (14 route modules, 11 lib modules, 12 services)
-- `management-ui/frontend/` — React 19 + Vite + Tailwind v4 frontend (11 страниц)
+- `management-ui/backend/` — Fastify v5 backend (15 route modules, 11 lib modules, 13 services)
+- `management-ui/frontend/` — React 19 + Vite + Tailwind v4 frontend (12 страниц)
 - `management-ui/shared/` — общие типы и утилиты
 - `management-ui/templates/*.gitlab-ci.yml` — CI-шаблоны для целевых проектов
 - `scripts/single-machine/install-management-ui.sh` — установка (копирует management-ui/ → /opt/management-ui/)

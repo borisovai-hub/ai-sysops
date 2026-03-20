@@ -1,0 +1,35 @@
+# Vikunja — Docker Compose конфигурация (SQLite)
+# Self-hosted task planner с календарём, списками, kanban, напоминаниями.
+#
+# Развёртывание:
+#   1. Создать .env файл с переменными окружения
+#   2. docker compose up -d
+#   3. Открыть https://tasks.dev.<domain> и войти через Authelia SSO
+#
+# Бэкап SQLite БД:
+#   docker exec vikunja sqlite3 /app/vikunja/vikunja.db ".backup /app/vikunja/vikunja-backup.db"
+#   docker cp vikunja:/app/vikunja/vikunja-backup.db ./backups/
+
+services:
+  vikunja:
+    image: vikunja/vikunja:latest
+    container_name: vikunja
+    env_file: .env
+    ports:
+      - "127.0.0.1:3456:3456"  # Только localhost, Traefik проксирует
+    volumes:
+      - vikunja-files:/app/vikunja/files
+      - vikunja-db:/app/vikunja
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3456/api/v1/info || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  vikunja-files:
+    name: vikunja-files
+  vikunja-db:
+    name: vikunja-db

@@ -32,6 +32,9 @@ export interface InstallConfig {
   mailu_api_url?: string;
   mailu_api_token?: string;
   mailu_domain?: string;
+  tasks_prefix?: string;
+  tasks_middle?: string;
+  vikunja_port?: number;
   [key: string]: unknown;
 }
 

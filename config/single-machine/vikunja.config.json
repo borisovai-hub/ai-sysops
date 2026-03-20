@@ -1,0 +1,53 @@
+{
+  "prefix": "tasks",
+  "middle": "dev",
+  "port": 3456,
+  "image": "vikunja/vikunja:latest",
+  "database": {
+    "type": "sqlite",
+    "path": "/app/vikunja/vikunja.db"
+  },
+  "timezone": "Europe/Moscow",
+  "registration": false,
+  "oidc": {
+    "enabled": true,
+    "provider": "Authelia",
+    "client_id": "vikunja",
+    "issuer_url": "https://auth.{{BASE_DOMAIN}}"
+  },
+  "smtp": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 587,
+    "username": "tasks@{{MAILU_DOMAIN}}",
+    "from": "tasks@{{MAILU_DOMAIN}}",
+    "force_ssl": false,
+    "skip_tls_verify": true
+  },
+  "caldav": {
+    "enabled": true,
+    "path": "/dav/"
+  },
+  "traefik": {
+    "router_name": "vikunja",
+    "entrypoint": "websecure",
+    "tls_resolver": "letsencrypt",
+    "middlewares": ["authelia@file"]
+  },
+  "volumes": {
+    "files": "vikunja-files",
+    "db": "vikunja-db"
+  },
+  "healthcheck": {
+    "endpoint": "/api/v1/info",
+    "interval": "30s",
+    "timeout": "10s",
+    "retries": 3,
+    "start_period": "10s"
+  },
+  "install_config_keys": {
+    "tasks_prefix": "tasks",
+    "tasks_middle": "dev",
+    "vikunja_port": 3456
+  }
+}

@@ -154,11 +154,22 @@ install:gitlab-oidc:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
+# Автоматическая установка Vikunja Task Planner
+install:vikunja:
+  stage: install
+  tags:
+    - deploy-root
+  needs: [install:docker]
+  script:
+    - bash scripts/single-machine/install-vikunja.sh
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
 deploy:
   stage: deploy
   tags:
     - deploy-root
-  needs: [build:management-ui, install:docker, install:umami, sync:configs]
+  needs: [build:management-ui, install:docker, install:umami, install:vikunja, sync:configs]
   script:
     # Рендеринг конфигов из шаблонов + CI Variables
     - bash scripts/ci/render-configs.sh
@@ -189,6 +200,9 @@ deploy:
 
     # Деплой файлового сервера (обновление конфигов и образов если установлен)
     - bash scripts/ci/deploy-fileserver.sh
+
+    # Деплой Vikunja Task Planner (обновление конфигов и образов если установлен)
+    - bash scripts/ci/deploy-vikunja.sh
 
     # Деплой Mailu (обновление PROXY_AUTH если установлен)
     - bash scripts/ci/deploy-mailu.sh

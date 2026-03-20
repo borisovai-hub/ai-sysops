@@ -13,6 +13,7 @@ export type * from './types/git.js';
 export type * from './types/config.js';
 export type * from './types/agent.js';
 export type * from './types/monitoring.js';
+export type * from './types/tasks.js';
 export { DEFAULT_MONITORING_CONFIG } from './types/monitoring.js';
 
 // Validation schemas

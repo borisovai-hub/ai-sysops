@@ -680,7 +680,7 @@ MAILUEOF
 fi
 
 # ============================================================
-# [6/8] Конфигурация для Authelia SSO (ForwardAuth middleware + роутер)
+# [6/9] Конфигурация для Authelia SSO (ForwardAuth middleware + роутер)
 # ============================================================
 AUTH_PREFIX_CFG=$(get_config_value "auth_prefix")
 [ -z "$AUTH_PREFIX_CFG" ] && AUTH_PREFIX_CFG="auth"
@@ -688,7 +688,7 @@ AUTHELIA_YML="$DYNAMIC_DIR/authelia.yml"
 
 if [ "$USE_BASE_DOMAINS" = true ]; then
     if [ "$FORCE_MODE" = true ] || [ ! -f "$AUTHELIA_YML" ]; then
-        echo "[6/8] Создание конфигурации для Authelia SSO..."
+        echo "[6/9] Создание конфигурации для Authelia SSO..."
         # Раздельные роутеры (по одному на домен) — избегаем SAN-конфликт в Let's Encrypt
         AUTHELIA_ROUTERS=""
         HAS_AUTH_DOMAINS=false
@@ -734,14 +734,14 @@ AUTHELIEOF
             echo "  [Ошибка] Не удалось построить правило для Authelia"
         fi
     else
-        echo "[6/8] [Пропуск] authelia.yml уже существует"
+        echo "[6/9] [Пропуск] authelia.yml уже существует"
     fi
 else
-    echo "[6/8] [Пропуск] Authelia (нет base_domains)"
+    echo "[6/9] [Пропуск] Authelia (нет base_domains)"
 fi
 
 # ============================================================
-# [7/8] Конфигурация для frp туннелей (wildcard *.tunnel.*)
+# [7/9] Конфигурация для frp туннелей (wildcard *.tunnel.*)
 # ============================================================
 FRP_PREFIX_CFG=$(get_config_value "frp_prefix")
 FRP_VHOST_PORT_CFG=$(get_config_value "frp_vhost_port")
@@ -751,7 +751,7 @@ if [ "$USE_BASE_DOMAINS" = true ] && [ -n "$FRP_PREFIX_CFG" ]; then
     [ -z "$FRP_VHOST_PORT_CFG" ] && FRP_VHOST_PORT_CFG="17480"
 
     if [ "$FORCE_MODE" = true ] || [ ! -f "$TUNNELS_YML" ]; then
-        echo "[7/8] Создание конфигурации для туннелей (frps)..."
+        echo "[7/9] Создание конфигурации для туннелей (frps)..."
 
         # Собираем HostRegexp для каждого base domain
         TUNNEL_HOST_RULE=""
@@ -788,13 +788,85 @@ TUNNELSEOF
         chmod 644 "$TUNNELS_YML"
         echo "  [OK] Создан $TUNNELS_YML (порт: ${FRP_VHOST_PORT_CFG})"
     else
-        echo "[7/8] [Пропуск] tunnels.yml уже существует"
+        echo "[7/9] [Пропуск] tunnels.yml уже существует"
     fi
 else
-    echo "[7/8] [Пропуск] frp не настроен (нет frp_prefix в конфиге)"
+    echo "[7/9] [Пропуск] frp не настроен (нет frp_prefix в конфиге)"
 fi
 
-echo "[8/8] Перезагрузка Traefik..."
+# ============================================================
+# [8/9] Конфигурация для Vikunja Task Planner
+# ============================================================
+TASKS_PREFIX_CFG=$(get_config_value "tasks_prefix")
+TASKS_MIDDLE_CFG=$(get_config_value "tasks_middle")
+VIKUNJA_PORT_CFG=$(get_config_value "vikunja_port")
+VIKUNJA_YML="$DYNAMIC_DIR/vikunja.yml"
+
+if [ "$USE_BASE_DOMAINS" = true ] && [ -n "$TASKS_PREFIX_CFG" ]; then
+    [ -z "$VIKUNJA_PORT_CFG" ] && VIKUNJA_PORT_CFG="3456"
+    [ -z "$TASKS_MIDDLE_CFG" ] && TASKS_MIDDLE_CFG="dev"
+
+    if [ "$FORCE_MODE" = true ] || [ ! -f "$VIKUNJA_YML" ]; then
+        echo "[8/9] Создание конфигурации для Vikunja..."
+
+        DOMAINS_LIST=""
+        while IFS= read -r base; do
+            [ -z "$base" ] && continue
+            [ -n "$DOMAINS_LIST" ] && DOMAINS_LIST="${DOMAINS_LIST},"
+            DOMAINS_LIST="${DOMAINS_LIST}${base}"
+        done < <(get_base_domains)
+
+        if [ -n "$DOMAINS_LIST" ]; then
+            python3 -c "
+import sys
+bt = chr(96)
+domains = '${DOMAINS_LIST}'.split(',')
+prefix = '${TASKS_PREFIX_CFG}'
+middle = '${TASKS_MIDDLE_CFG}'
+vikunja_port = '${VIKUNJA_PORT_CFG}'
+
+routers = ''
+for d in domains:
+    suffix = d.split('.')[-1]
+    full = f'{prefix}.{middle}.{d}'
+    routers += f'''    vikunja-{suffix}:
+      rule: \"Host({bt}{full}{bt})\"
+      service: vikunja
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authelia@file
+'''
+
+content = f'''# Vikunja Task Planner - Traefik dynamic config
+# Авторизация через Authelia (ForwardAuth + OIDC)
+http:
+  routers:
+{routers}
+  services:
+    vikunja:
+      loadBalancer:
+        servers:
+          - url: 'http://127.0.0.1:{vikunja_port}'
+'''
+with open('${VIKUNJA_YML}', 'w') as f:
+    f.write(content)
+"
+            chmod 644 "$VIKUNJA_YML"
+            echo "  [OK] Создан $VIKUNJA_YML (порт: ${VIKUNJA_PORT_CFG})"
+        else
+            echo "  [Ошибка] Не удалось получить base_domains"
+        fi
+    else
+        echo "[8/9] [Пропуск] vikunja.yml уже существует"
+    fi
+else
+    echo "[8/9] [Пропуск] Vikunja не настроен (нет tasks_prefix в конфиге)"
+fi
+
+echo "[9/9] Перезагрузка Traefik..."
 if systemctl is-active --quiet traefik; then
     systemctl reload traefik 2>/dev/null || systemctl restart traefik
 else

@@ -14,6 +14,7 @@ import { FilesPage } from './pages/FilesPage';
 import { GitPage } from './pages/GitPage';
 import { AgentPage } from './pages/AgentPage';
 import { MonitoringPage } from './pages/MonitoringPage';
+import { TasksPage } from './pages/TasksPage';
 
 export function App() {
   return (
@@ -28,6 +29,7 @@ export function App() {
         <Route path="content" element={<ContentPage />} />
         <Route path="tunnels" element={<TunnelsPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
+        <Route path="tasks" element={<TasksPage />} />
         <Route path="files" element={<FilesPage />} />
         <Route path="git" element={<GitPage />} />
         <Route path="users" element={<UsersPage />} />
