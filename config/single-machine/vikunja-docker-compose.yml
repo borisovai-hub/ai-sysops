@@ -20,7 +20,7 @@ services:
     network_mode: host
     volumes:
       - vikunja-files:/app/vikunja/files
-      - vikunja-db:/app/vikunja
+      - vikunja-db:/db
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3456/api/v1/info || exit 1"]

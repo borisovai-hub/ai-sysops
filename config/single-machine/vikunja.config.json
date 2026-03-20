@@ -5,7 +5,7 @@
   "image": "vikunja/vikunja:latest",
   "database": {
     "type": "sqlite",
-    "path": "/app/vikunja/vikunja.db"
+    "path": "/db/vikunja.db"
   },
   "timezone": "Europe/Moscow",
   "registration": false,

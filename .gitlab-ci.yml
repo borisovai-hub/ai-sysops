@@ -154,7 +154,7 @@ install:gitlab-oidc:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
-# Автоматическая установка Vikunja Task Planner
+# Установка Vikunja Task Planner (ручная — требует install:authelia для OIDC)
 install:vikunja:
   stage: install
   tags:
@@ -162,6 +162,8 @@ install:vikunja:
   needs: [install:docker]
   script:
     - bash scripts/single-machine/install-vikunja.sh
+  when: manual
+  allow_failure: true
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
@@ -169,7 +171,7 @@ deploy:
   stage: deploy
   tags:
     - deploy-root
-  needs: [build:management-ui, install:docker, install:umami, install:vikunja, sync:configs]
+  needs: [build:management-ui, install:docker, install:umami, sync:configs]
   script:
     # Рендеринг конфигов из шаблонов + CI Variables
     - bash scripts/ci/render-configs.sh

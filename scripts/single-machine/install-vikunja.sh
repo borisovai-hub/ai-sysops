@@ -161,8 +161,8 @@ if [ -f "/etc/authelia/secrets/vikunja_client_secret" ]; then
     VIKUNJA_CLIENT_SECRET=$(cat /etc/authelia/secrets/vikunja_client_secret)
 fi
 
-if [ -f "$ENV_FILE" ] && [ -s "$ENV_FILE" ]; then
-    echo "  [Пропуск] .env файл уже существует (не перезаписывается)"
+if [ -f "$ENV_FILE" ] && [ -s "$ENV_FILE" ] && [ "$FORCE_MODE" != true ]; then
+    echo "  [Пропуск] .env файл уже существует (не перезаписывается, --force для пересоздания)"
 else
     cat > "$ENV_FILE" << EOF
 # Vikunja — переменные окружения
@@ -174,9 +174,9 @@ VIKUNJA_SERVICE_FRONTENDURL=${VIKUNJA_FRONTEND_URL}
 VIKUNJA_SERVICE_JWTSECRET=${VIKUNJA_JWT_SECRET}
 VIKUNJA_SERVICE_ENABLEREGISTRATION=false
 
-# База данных: SQLite
+# База данных: SQLite (volume /db монтируется отдельно от /app/vikunja)
 VIKUNJA_DATABASE_TYPE=sqlite
-VIKUNJA_DATABASE_PATH=/app/vikunja/vikunja.db
+VIKUNJA_DATABASE_PATH=/db/vikunja.db
 
 # SMTP уведомления через Mailu
 VIKUNJA_MAILER_ENABLED=true
