@@ -15,8 +15,9 @@ services:
     image: vikunja/vikunja:latest
     container_name: vikunja
     env_file: .env
-    ports:
-      - "127.0.0.1:3456:3456"  # Только localhost, Traefik проксирует
+    # network_mode: host — нужен для доступа к Mailu SMTP на 127.0.0.1:587
+    # Vikunja слушает на порту 3456 (доступен только с localhost)
+    network_mode: host
     volumes:
       - vikunja-files:/app/vikunja/files
       - vikunja-db:/app/vikunja

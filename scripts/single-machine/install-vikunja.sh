@@ -229,9 +229,15 @@ echo "[5/7] Запуск контейнеров..."
 
 cd /etc/vikunja
 
-# Создаём volumes
+# Создаём volumes и выставляем права ДО запуска контейнера
+# Vikunja может работать как non-root, нужны права на запись
 docker volume create vikunja-files 2>/dev/null || true
 docker volume create vikunja-db 2>/dev/null || true
+# Определяем uid из образа
+VIKUNJA_UID=$(docker run --rm --entrypoint='' "${VIKUNJA_IMAGE}" id -u 2>/dev/null || echo "1000")
+chown -R "${VIKUNJA_UID}:${VIKUNJA_UID}" /var/lib/docker/volumes/vikunja-files/_data/ 2>/dev/null || true
+chown -R "${VIKUNJA_UID}:${VIKUNJA_UID}" /var/lib/docker/volumes/vikunja-db/_data/ 2>/dev/null || true
+echo "  [OK] Права volume установлены (uid=${VIKUNJA_UID})"
 
 if ! docker compose up -d; then
     echo "  [ОШИБКА] Не удалось запустить контейнеры"

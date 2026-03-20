@@ -59,6 +59,18 @@ else
     echo "Umami Analytics — не установлен (пропуск)"
 fi
 
+# Vikunja Task Planner (опционально)
+if docker ps --filter name=vikunja --format "{{.Names}}" 2>/dev/null | grep -q "^vikunja$"; then
+    echo -n "Vikunja Tasks (порт 3456)... "
+    if curl -sf --max-time 5 http://127.0.0.1:3456/api/v1/info > /dev/null 2>&1; then
+        echo "OK"
+    else
+        echo "ПРЕДУПРЕЖДЕНИЕ (контейнер работает, но API не отвечает)"
+    fi
+else
+    echo "Vikunja Tasks — не установлен (пропуск)"
+fi
+
 echo ""
 if [ "$ERRORS" -gt 0 ]; then
     echo "Health check FAILED ($ERRORS ошибок)"

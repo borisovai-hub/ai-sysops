@@ -149,6 +149,20 @@ async function checkRuProxy(): Promise<CheckResult> {
   }
 }
 
+async function checkVikunja(): Promise<CheckResult> {
+  const start = Date.now();
+  const dockerResult = execCommandSafe('docker ps --filter name=vikunja --format "{{.Names}}"');
+  if (!dockerResult.success || !dockerResult.stdout.includes('vikunja')) {
+    return { status: 'down', responseTimeMs: Date.now() - start, error: 'Container not running' };
+  }
+  try {
+    const resp = await axios.get('http://localhost:3456/api/v1/info', { timeout: 3000 });
+    return { status: 'up', responseTimeMs: Date.now() - start, statusCode: resp.status };
+  } catch (err: any) {
+    return { status: 'degraded', responseTimeMs: Date.now() - start, error: err.message, details: { containerRunning: true } };
+  }
+}
+
 async function checkManagementUi(): Promise<CheckResult> {
   return { status: 'up', responseTimeMs: 0, details: { self: true } };
 }
@@ -174,6 +188,7 @@ class MonitoringService {
     this.registerChecker('gitlab', checkGitlab);
     this.registerChecker('strapi', checkStrapi);
     this.registerChecker('ru-proxy', checkRuProxy);
+    this.registerChecker('vikunja', checkVikunja);
     this.registerChecker('management-ui', checkManagementUi);
   }
 
