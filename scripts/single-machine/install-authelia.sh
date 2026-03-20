@@ -421,7 +421,7 @@ ${OIDC_RSA_KEY}
         authorization_policy: two_factor
         redirect_uris:${VIKUNJA_REDIRECTS}
         scopes: [openid, profile, email]
-        token_endpoint_auth_method: client_secret_post
+        token_endpoint_auth_method: client_secret_basic
 EOF
 
 chmod 600 "$AUTHELIA_CONFIG"
