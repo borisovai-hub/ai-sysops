@@ -45,7 +45,20 @@ sync:configs:
           git rebase --abort 2>/dev/null || true
           git reset --hard origin/main
         }
-        git stash pop 2>/dev/null || echo "Нет stashed изменений или конфликт — используем remote версию"
+        if ! git stash pop 2>/dev/null; then
+          echo "Нет stashed изменений или конфликт"
+          # При конфликте stash pop — принимаем remote версию для JSON файлов
+          CONFLICTED=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+          if [ -n "$CONFLICTED" ]; then
+            echo "Конфликтные файлы: $CONFLICTED"
+            for cf in $CONFLICTED; do
+              echo "  Принимаем remote версию: $cf"
+              git checkout --theirs "$cf" 2>/dev/null || true
+              git add "$cf" 2>/dev/null || true
+            done
+            git stash drop 2>/dev/null || true
+          fi
+        fi
       else
         echo "Клонирование config repo..."
         git clone "$CONFIG_REPO_URL" "$CONFIG_REPO"
@@ -112,7 +125,7 @@ install:authelia:
     - deploy-root
   needs: []
   script:
-    - bash scripts/single-machine/install-authelia.sh
+    - bash scripts/single-machine/install-authelia.sh --force
   when: manual
   allow_failure: true
   rules:
@@ -161,7 +174,7 @@ install:vikunja:
     - deploy-root
   needs: [install:docker]
   script:
-    - bash scripts/single-machine/install-vikunja.sh
+    - bash scripts/single-machine/install-vikunja.sh --force
   when: manual
   allow_failure: true
   rules:
