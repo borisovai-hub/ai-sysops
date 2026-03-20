@@ -279,7 +279,7 @@ while IFS= read -r base; do
     STRAPI_REDIRECTS="${STRAPI_REDIRECTS}
           - 'https://api.${base}/strapi-plugin-sso/oidc/callback'"
     VIKUNJA_REDIRECTS="${VIKUNJA_REDIRECTS}
-          - 'https://tasks.dev.${base}/auth/openid/'"
+          - 'https://tasks.dev.${base}/auth/openid/authelia'"
 done < <(get_base_domains)
 
 cat > "$AUTHELIA_CONFIG" << EOF
