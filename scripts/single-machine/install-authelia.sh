@@ -206,10 +206,10 @@ MGMT_SECRET=$(cat /etc/authelia/secrets/mgmt_client_secret)
 GITLAB_SECRET=$(cat /etc/authelia/secrets/gitlab_client_secret)
 STRAPI_SECRET=$(cat /etc/authelia/secrets/strapi_client_secret)
 VIKUNJA_SECRET=$(cat /etc/authelia/secrets/vikunja_client_secret)
-MGMT_HASH=$(authelia crypto hash generate argon2 --password "$MGMT_SECRET" 2>/dev/null || echo '$argon2id$v=19$m=65536,t=3,p=4$placeholder')
-GITLAB_HASH=$(authelia crypto hash generate argon2 --password "$GITLAB_SECRET" 2>/dev/null || echo '$argon2id$v=19$m=65536,t=3,p=4$placeholder')
-STRAPI_HASH=$(authelia crypto hash generate argon2 --password "$STRAPI_SECRET" 2>/dev/null || echo '$argon2id$v=19$m=65536,t=3,p=4$placeholder')
-VIKUNJA_HASH=$(authelia crypto hash generate argon2 --password "$VIKUNJA_SECRET" 2>/dev/null || echo '$argon2id$v=19$m=65536,t=3,p=4$placeholder')
+MGMT_HASH=$(authelia crypto hash generate argon2 --password "$MGMT_SECRET" 2>/dev/null | sed 's/^Digest: //' || echo '$argon2id$v=19$m=65536,t=3,p=4$placeholder')
+GITLAB_HASH=$(authelia crypto hash generate argon2 --password "$GITLAB_SECRET" 2>/dev/null | sed 's/^Digest: //' || echo '$argon2id$v=19$m=65536,t=3,p=4$placeholder')
+STRAPI_HASH=$(authelia crypto hash generate argon2 --password "$STRAPI_SECRET" 2>/dev/null | sed 's/^Digest: //' || echo '$argon2id$v=19$m=65536,t=3,p=4$placeholder')
+VIKUNJA_HASH=$(authelia crypto hash generate argon2 --password "$VIKUNJA_SECRET" 2>/dev/null | sed 's/^Digest: //' || echo '$argon2id$v=19$m=65536,t=3,p=4$placeholder')
 
 # Читаем RSA ключ (индентируем для YAML)
 OIDC_RSA_KEY=$(sed 's/^/          /' "$OIDC_KEY_FILE")
@@ -421,7 +421,7 @@ ${OIDC_RSA_KEY}
         authorization_policy: two_factor
         redirect_uris:${VIKUNJA_REDIRECTS}
         scopes: [openid, profile, email]
-        token_endpoint_auth_method: client_secret_basic
+        token_endpoint_auth_method: client_secret_post
 EOF
 
 chmod 600 "$AUTHELIA_CONFIG"
