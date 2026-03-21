@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Folder, File, FolderPlus, Trash2, ChevronRight, Home, AlertCircle } from 'lucide-react';
+import { Folder, File, FolderPlus, Trash2, ChevronRight, Home, AlertCircle, ExternalLink, Download } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/feedback/EmptyState';
 import { ConfirmDialog } from '@/components/feedback/ConfirmDialog';
 import { RelativeTime } from '@/components/shared/RelativeTime';
-import { useFileBrowse } from '@/api/queries/files';
+import { useFileBrowse, useFileStatus } from '@/api/queries/files';
 import { useDeleteFile, useCreateDir } from '@/api/mutations/files';
 import { ApiError } from '@/api/client';
 
@@ -24,8 +24,12 @@ function formatSize(bytes: number): string {
 export function FilesPage() {
   const [currentPath, setCurrentPath] = useState('/');
   const { data: files, isLoading } = useFileBrowse(currentPath);
+  const { data: status } = useFileStatus();
   const deleteFile = useDeleteFile();
   const createDir = useCreateDir();
+
+  const domains = (status as { domains?: string[] } | undefined)?.domains;
+  const fileBaseUrl = domains?.[0] ? `https://${domains[0]}` : '';
 
   const [mkdirOpen, setMkdirOpen] = useState(false);
   const [dirName, setDirName] = useState('');
@@ -127,6 +131,7 @@ export function FilesPage() {
               <TableHead>Имя</TableHead>
               <TableHead>Размер</TableHead>
               <TableHead>Изменён</TableHead>
+              <TableHead>Ссылка</TableHead>
               <TableHead className="w-20">Действия</TableHead>
             </TableRow>
           </TableHeader>
@@ -157,6 +162,31 @@ export function FilesPage() {
                 </TableCell>
                 <TableCell>
                   {f.modified ? <RelativeTime date={f.modified} /> : '---'}
+                </TableCell>
+                <TableCell>
+                  {fileBaseUrl && (
+                    <div className="flex items-center gap-1">
+                      <a
+                        href={`${fileBaseUrl}${buildPath(f.name)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+                        title="Открыть ресурс"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                      {f.type !== 'directory' && (
+                        <a
+                          href={`${fileBaseUrl}${buildPath(f.name)}`}
+                          download
+                          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+                          title="Скачать"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(buildPath(f.name))}>
