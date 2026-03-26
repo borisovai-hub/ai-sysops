@@ -125,7 +125,7 @@ fi
 # Health check
 # ============================================================
 echo -n "  Casdoor health... "
-if curl -sf --max-time 10 http://127.0.0.1:8100/ >/dev/null 2>&1; then
+if curl -sf --max-time 10 http://127.0.0.1:8121/ >/dev/null 2>&1; then
     echo "OK"
 else
     echo "ПРЕДУПРЕЖДЕНИЕ (проверьте логи: docker compose -f $CASDOOR_DIR/docker-compose.yml logs)"

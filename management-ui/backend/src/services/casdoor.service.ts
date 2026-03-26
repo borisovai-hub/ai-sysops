@@ -2,7 +2,7 @@ import axios from 'axios';
 import { execCommandSafe } from '../lib/exec.js';
 import type { CasdoorStatus } from '@management-ui/shared';
 
-const CASDOOR_PORT = 8100;
+const CASDOOR_PORT = 8121;
 const CASDOOR_DOMAIN = 'auth.trendominus.ru';
 
 export async function getCasdoorStatus(): Promise<CasdoorStatus> {

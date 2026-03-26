@@ -65,8 +65,8 @@ docker compose up -d
 echo "[4/4] Проверка..."
 sleep 8
 
-if curl -sf --max-time 10 http://127.0.0.1:8100/ >/dev/null 2>&1; then
-    echo "  [OK] Casdoor запущен на 127.0.0.1:8100"
+if curl -sf --max-time 10 http://127.0.0.1:8121/ >/dev/null 2>&1; then
+    echo "  [OK] Casdoor запущен на 127.0.0.1:8121"
 else
     echo "  ПРЕДУПРЕЖДЕНИЕ: Casdoor не отвечает. Проверьте:"
     echo "  docker compose -f $CASDOOR_DIR/docker-compose.yml logs"
