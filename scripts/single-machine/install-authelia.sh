@@ -284,6 +284,25 @@ while IFS= read -r base; do
           - 'https://tasks.dev.${base}/auth/openid/authelia'"
 done < <(get_base_domains)
 
+# Сохраняем существующий notifier (SMTP) если есть
+NOTIFIER_BLOCK="notifier:
+  filesystem:
+    filename: /var/lib/authelia/notifications.txt"
+if [ -f "$AUTHELIA_CONFIG" ] && grep -q 'smtp:' "$AUTHELIA_CONFIG" 2>/dev/null; then
+    EXISTING_NOTIFIER=$(python3 -c "
+import re
+with open('$AUTHELIA_CONFIG') as f:
+    content = f.read()
+m = re.search(r'^notifier:\n(?:[ \t]+.*\n)*', content, re.MULTILINE)
+if m:
+    print(m.group(0).rstrip())
+" 2>/dev/null || echo "")
+    if [ -n "$EXISTING_NOTIFIER" ]; then
+        NOTIFIER_BLOCK="$EXISTING_NOTIFIER"
+        echo "  Сохранён существующий SMTP notifier"
+    fi
+fi
+
 cat > "$AUTHELIA_CONFIG" << EOF
 ---
 # Authelia SSO configuration
@@ -379,9 +398,7 @@ access_control:
     - domain:${TASKS_DOMAINS}
       policy: two_factor
 
-notifier:
-  filesystem:
-    filename: /var/lib/authelia/notifications.txt
+${NOTIFIER_BLOCK}
 
 identity_providers:
   oidc:
