@@ -83,11 +83,14 @@ export async function createUser(params: {
   const passwordHash = await hashAutheliaPassword(params.password);
   const now = new Date().toISOString();
 
+  const email = sanitizeString(params.email) || '';
+  const extEmail = sanitizeString(params.externalEmail) || null;
+
   await db.insert(autheliaUsers).values({
     username,
     displayname: sanitizeString(params.displayname) || username,
-    email: sanitizeString(params.email) || '',
-    externalEmail: sanitizeString(params.externalEmail) || null,
+    email,
+    externalEmail: extEmail && extEmail !== email ? extEmail : null,
     passwordHash,
     groups: JSON.stringify(Array.isArray(params.groups) ? params.groups.map(sanitizeString).filter(Boolean) : []),
     disabled: false,
@@ -117,7 +120,10 @@ export async function updateUser(
   if (params.groups !== undefined) {
     updates.groups = JSON.stringify(Array.isArray(params.groups) ? params.groups.map(sanitizeString).filter(Boolean) : []);
   }
-  if (params.externalEmail !== undefined) updates.externalEmail = sanitizeString(params.externalEmail) || null;
+  if (params.externalEmail !== undefined) {
+    const ext = sanitizeString(params.externalEmail) || null;
+    updates.externalEmail = ext && ext !== (updates.email ?? existing[0].email) ? ext : null;
+  }
   if (params.disabled !== undefined) updates.disabled = !!params.disabled;
   if (params.authPolicy !== undefined) updates.authPolicy = params.authPolicy;
   if (params.mailbox !== undefined) updates.mailbox = sanitizeString(params.mailbox) || null;

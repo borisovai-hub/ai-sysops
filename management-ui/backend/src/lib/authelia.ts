@@ -70,7 +70,7 @@ export async function hashAutheliaPassword(password: string): Promise<string> {
  */
 export function restartAuthelia(): void {
   if (isAutheliaGitOps()) return;
-  const result = execCommandSafe('systemctl restart authelia');
+  const result = execCommandSafe('sudo systemctl restart authelia');
   if (!result.success) {
     logger.warn('Ошибка перезапуска Authelia:', result.error);
   }
