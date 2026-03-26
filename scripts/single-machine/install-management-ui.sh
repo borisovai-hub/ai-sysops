@@ -400,7 +400,7 @@ Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=SERVER_NAME=contabo-sm-139
 Environment=CONFIG_REPO_DIR=/opt/server-configs
-NoNewPrivileges=true
+NoNewPrivileges=false
 ProtectSystem=strict
 ReadWritePaths=/etc/management-ui /var/log /var/lib/management-ui /opt/server-configs
 PrivateTmp=true
