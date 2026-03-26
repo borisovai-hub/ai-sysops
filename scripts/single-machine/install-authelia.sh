@@ -239,7 +239,8 @@ while IFS= read -r base; do
         - '${base}'
         - 'www.${base}'
         - 'api.${base}'
-        - '${AUTHELIA_PREFIX}.${base}'"
+        - '${AUTHELIA_PREFIX}.${base}'
+        - 'auth.trendominus.ru'"
 done < <(get_base_domains)
 
 # Домены для two_factor защиты

@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router';
 import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft } from 'lucide-react';
 import {
-  Server, Globe, Shield, Activity,
+  Server, Globe, Shield, Activity, ShieldCheck,
   Package, FileText,
   Cable, BarChart3, CheckSquare, FolderOpen, GitBranch,
   Users, Key, Bot,
@@ -36,6 +36,7 @@ const sidebarMap: Record<string, SidebarItem[]> = {
   admin: [
     { label: 'Пользователи', path: '/users', icon: Users },
     { label: 'Токены', path: '/tokens', icon: Key },
+    { label: 'Casdoor', path: '/casdoor', icon: ShieldCheck },
   ],
   agent: [
     { label: 'Чат', path: '/agent', icon: Bot },

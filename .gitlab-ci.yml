@@ -167,6 +167,19 @@ install:gitlab-oidc:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
+# Установка Casdoor Identity Provider (ручная — первый запуск)
+install:casdoor:
+  stage: install
+  tags:
+    - deploy-root
+  needs: [install:docker]
+  script:
+    - bash scripts/single-machine/install-casdoor.sh --force
+  when: manual
+  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
 # Установка Vikunja Task Planner (ручная — требует install:authelia для OIDC)
 install:vikunja:
   stage: install
@@ -215,6 +228,9 @@ deploy:
 
     # Деплой файлового сервера (обновление конфигов и образов если установлен)
     - bash scripts/ci/deploy-fileserver.sh
+
+    # Деплой Casdoor Identity Provider (обновление конфигов и образов если установлен)
+    - bash scripts/ci/deploy-casdoor.sh
 
     # Деплой Vikunja Task Planner (обновление конфигов и образов если установлен)
     - bash scripts/ci/deploy-vikunja.sh
