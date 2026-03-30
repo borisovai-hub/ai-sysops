@@ -72,29 +72,54 @@ function saveDomains(data) {
 
 // --- Caddyfile генерация ---
 
+function hasWildcardDomains(domainsData) {
+    return domainsData.domains.some(d => d.enabled && d.domain.startsWith('*.'));
+}
+
 function generateCaddyfile(domainsData) {
+    const needsOnDemand = hasWildcardDomains(domainsData);
     const lines = [
         '{',
         '    admin localhost:2019',
-        '}',
-        ''
     ];
+
+    // on_demand_tls нужен для wildcard-доменов — Caddy выпускает сертификат
+    // для каждого поддомена по первому запросу, ask-endpoint валидирует домен
+    if (needsOnDemand) {
+        lines.push('    on_demand_tls {');
+        lines.push('        ask http://localhost:3100/api/check-domain');
+        lines.push('    }');
+    }
+
+    lines.push('}');
+    lines.push('');
 
     for (const entry of domainsData.domains) {
         if (!entry.enabled) continue;
         const backend = entry.backend || domainsData.defaultBackend;
         if (!backend) continue;
 
+        const isWildcard = entry.domain.startsWith('*.');
+
         lines.push(`${entry.domain} {`);
+
+        // Wildcard-домены используют on_demand TLS
+        if (isWildcard) {
+            lines.push(`    tls {`);
+            lines.push(`        on_demand`);
+            lines.push(`    }`);
+        }
+
         lines.push(`    reverse_proxy ${backend} {`);
         lines.push(`        header_up Host {host}`);
         lines.push(`        header_up X-Real-IP {remote_host}`);
 
-        // TLS к бэкенду: SNI = домен + skip verify (Traefik не имеет LE-сертификата
+        // TLS к бэкенду: SNI + skip verify (Traefik не имеет LE-сертификата
         // для .ru доменов, т.к. DNS указывает на RU VPS)
         if (backend.startsWith('https://')) {
             lines.push(`        transport http {`);
-            lines.push(`            tls_server_name ${entry.domain}`);
+            // Для wildcard — SNI = реальный хост запроса, для обычных — домен из конфига
+            lines.push(`            tls_server_name ${isWildcard ? '{host}' : entry.domain}`);
             lines.push(`            tls_insecure_skip_verify`);
             lines.push(`        }`);
         }
@@ -142,6 +167,33 @@ function isCaddyRunning() {
 }
 
 // --- API Endpoints ---
+
+// Валидация домена для Caddy on_demand TLS (без авторизации — вызывается Caddy)
+// Caddy отправляет GET /api/check-domain?domain=xxx перед выпуском сертификата
+app.get('/api/check-domain', (req, res) => {
+    const domain = req.query.domain;
+    if (!domain) {
+        return res.status(400).send('missing domain');
+    }
+
+    const data = loadDomains();
+    for (const entry of data.domains) {
+        if (!entry.enabled) continue;
+        // Точное совпадение
+        if (entry.domain === domain) {
+            return res.status(200).send('ok');
+        }
+        // Wildcard: *.public.gitlab.dev.borisovai.ru → проверяем что домен под этим шаблоном
+        if (entry.domain.startsWith('*.')) {
+            const suffix = entry.domain.slice(1); // .public.gitlab.dev.borisovai.ru
+            if (domain.endsWith(suffix) && domain.indexOf('.') === domain.length - suffix.length) {
+                return res.status(200).send('ok');
+            }
+        }
+    }
+
+    res.status(403).send('domain not allowed');
+});
 
 // Health check (без авторизации)
 app.get('/api/health', (req, res) => {
