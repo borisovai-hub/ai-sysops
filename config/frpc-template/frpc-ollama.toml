@@ -1,0 +1,18 @@
+# frpc-ollama.toml — туннель локальной Ollama на сервер
+# Сервисы на сервере смогут обращаться к Ollama по localhost:11434
+#
+# Скачать frpc: https://github.com/fatedier/frp/releases (frp_*_windows_amd64.zip → frpc.exe)
+# Запуск: frpc.exe -c frpc-ollama.toml
+# Проверка на сервере: curl http://localhost:11434/api/tags
+
+serverAddr = "borisovai.tech"
+serverPort = 17420
+auth.token = "6LBjqYzczHmQ6U2Q8XCqVCtxstfudzs"
+
+# TCP туннель: сервер localhost:11434 → локальная Ollama localhost:11434
+[[proxies]]
+name = "ollama"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 11434
+remotePort = 11434

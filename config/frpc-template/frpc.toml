@@ -3,7 +3,7 @@
 # Запуск: frpc.exe -c frpc.toml
 # Документация: https://gofrp.org/en/docs/
 
-serverAddr = "borisovai.ru"
+serverAddr = "borisovai.tech"
 serverPort = 17420
 auth.token = "ВСТАВЬТЕ_ТОКЕН_ИЗ_/etc/frp/frps.toml"
 
