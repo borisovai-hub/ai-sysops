@@ -1,4 +1,8 @@
-# Инструкция для агента: управление сервисами и DNS
+# AGENT_SERVICES — низкоуровневый CRUD Traefik/DNS
+
+> Для **публикации** сервиса/проекта используйте [AGENT_PUBLISH.md](AGENT_PUBLISH.md) (единый API со всеми guards и 6-точечной Authelia). Этот документ — справочник по низкоуровневым endpoint'ам, нужным для ручного вмешательства (миграция порта, диагностика, удаление конкретной DNS-записи).
+>
+> Правила публикации (мульти-домен, Authelia checklist, idempotency DNS) — в `AGENT_PUBLISH.md` → раздел "Правила публикации". Не дублируются здесь.
 
 Управление Traefik-сервисами и DNS-записями через Management UI API (Fastify v5).
 
@@ -230,7 +234,8 @@ curl -H "Authorization: Bearer $TOKEN" $BASE/api/dns/records
 
 ## 8. Связанные инструкции
 
-- [AGENT_ORCHESTRATOR.md](AGENT_ORCHESTRATOR.md) -- регистрация проектов (DNS + Traefik + CI за один запрос)
-- [AGENT_GITOPS.md](AGENT_GITOPS.md) -- CI/CD деплой borisovai-admin
-- [AGENT_API_GUIDE.md](AGENT_API_GUIDE.md) -- публикация контента через Strapi API
-- [AGENT_PUBLISH_SETUP.md](AGENT_PUBLISH_SETUP.md) -- настройка деплоя borisovai-site
+- **[AGENT_PUBLISH.md](AGENT_PUBLISH.md) — основной документ публикации (правила + новый API).**
+- [AGENT_PUBLISH_API.md](AGENT_PUBLISH_API.md) — контракт endpoint'ов `/api/publish/*`.
+- [AGENT_ORCHESTRATOR.md](AGENT_ORCHESTRATOR.md) — legacy endpoint `POST /api/publish/projects`.
+- [AGENT_GITOPS.md](AGENT_GITOPS.md) — CI/CD деплой borisovai-admin.
+- [AGENT_API_GUIDE.md](AGENT_API_GUIDE.md) — публикация контента через Strapi API.

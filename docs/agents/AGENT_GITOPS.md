@@ -1,4 +1,7 @@
-# Инструкция для агента: GitOps CI/CD borisovai-admin
+# AGENT_GITOPS — CI/CD самого borisovai-admin
+
+> **Scope:** этот документ только про CI/CD **собственного** репозитория `borisovai-admin` (как Management UI деплоится на сервер при push в main).
+> Для публикации **сторонних** сервисов/проектов через Management UI — [AGENT_PUBLISH.md](AGENT_PUBLISH.md).
 
 Руководство по CI/CD pipeline для автоматического деплоя borisovai-admin на сервер при push в main.
 

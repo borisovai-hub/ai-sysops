@@ -1,4 +1,6 @@
-# Инструкция для агента: Интеграция Umami Analytics
+# AGENT_ANALYTICS — интеграция Umami в Next.js-проект
+
+> **Scope:** как встроить existing Umami в конкретный фронтенд. Для **развёртывания сервиса Umami** (установка, Traefik, SSO) — используй [AGENT_PUBLISH.md](AGENT_PUBLISH.md) с `type: "service"`.
 
 ## Назначение
 

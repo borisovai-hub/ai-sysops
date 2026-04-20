@@ -1,4 +1,7 @@
-# Agent API Guide — BorisovAI Blog Publishing
+# AGENT_API_GUIDE — публикация контента в Strapi
+
+> **Scope:** публикация **контента** (notes, threads) в Strapi CMS на `borisovai.tech`. Это **не** про развёртывание сервиса или регистрацию проекта.
+> Для публикации сервиса/проекта в инфраструктуре — [AGENT_PUBLISH.md](AGENT_PUBLISH.md).
 
 Практическое руководство для агента (бота, скрипта, Claude Code) по публикации заметок и потоков на сайт borisovai.tech через API.
 

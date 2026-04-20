@@ -19,6 +19,7 @@ export { DEFAULT_MONITORING_CONFIG } from './types/monitoring.js';
 
 // Validation schemas
 export * from './validation/schemas.js';
+export * from './validation/publish-schemas.js';
 
 // Errors
 export * from './errors.js';

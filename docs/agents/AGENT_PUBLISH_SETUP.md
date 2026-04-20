@@ -1,6 +1,11 @@
-# Инструкция для агента: настройка для публикации
+# AGENT_PUBLISH_SETUP — настройка CI-деплоя borisovai-site (legacy)
 
-Пошаговая инструкция для агента (скрипта, CI, бота) по подготовке проекта к публикации (деплой на staging/production). Публикация контента через API описана в [AGENT_API_GUIDE.md](AGENT_API_GUIDE.md).
+> **Scope:** этот документ описывает **только** настройку CI для проекта `borisovai-site` (Next.js + Strapi) — how to подготовить репозиторий для деплоя через GitLab Runner. Он **не** про публикацию нового сервиса/проекта в инфраструктуре.
+>
+> Для публикации сервиса или проекта через Management UI API — [AGENT_PUBLISH.md](AGENT_PUBLISH.md).
+> Для публикации контента через Strapi — [AGENT_API_GUIDE.md](AGENT_API_GUIDE.md).
+
+Пошаговая инструкция по подготовке borisovai-site к деплою на staging/production.
 
 ---
 

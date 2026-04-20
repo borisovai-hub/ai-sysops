@@ -1,6 +1,9 @@
-# Инструкция для агента: регистрация проектов (One-Click Publish)
+# AGENT_ORCHESTRATOR — legacy endpoint `POST /api/publish/projects`
 
-Руководство для AI-агента по регистрации и публикации проектов через Management UI API (Fastify, порт 3000). Оркестратор автоматически настраивает DNS, Traefik, CI/CD, директории и Strapi в зависимости от типа проекта.
+> **Legacy reference.** Для новых публикаций используйте [AGENT_PUBLISH.md](AGENT_PUBLISH.md) (единый контракт + правила + LLM-оркестратор).
+> Этот документ описывает только **текущий** legacy endpoint `POST /api/publish/projects`, который работает как thin-wrapper над новым API. Правила публикации (мульти-домен, Authelia 6 точек, idempotency, Docker uid и т.д.) — **не дублируются** здесь, смотри `AGENT_PUBLISH.md` → раздел "Правила публикации".
+
+Оркестратор автоматически настраивает DNS, Traefik, CI/CD, директории и Strapi в зависимости от типа проекта.
 
 ## 1. Подключение
 
@@ -310,11 +313,13 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ## 10. Связанные инструкции
 
-- [AGENT_API_GUIDE.md](AGENT_API_GUIDE.md) -- публикация контента через Strapi API
-- [AGENT_GITOPS.md](AGENT_GITOPS.md) -- CI/CD деплой borisovai-admin
-- [AGENT_SERVICES.md](AGENT_SERVICES.md) -- управление сервисами и DNS
-- [AGENT_PUBLISH_SETUP.md](AGENT_PUBLISH_SETUP.md) -- настройка деплоя borisovai-site
-- [AGENT_ANALYTICS.md](AGENT_ANALYTICS.md) -- интеграция Umami Analytics
+- **[AGENT_PUBLISH.md](AGENT_PUBLISH.md) — основной документ для публикации (правила, сценарии, новый API).**
+- [AGENT_PUBLISH_API.md](AGENT_PUBLISH_API.md) — контракт нового API (`/api/publish/service`, `/project`, `/verify`, `/rollback`).
+- [AGENT_PUBLISH_AI.md](AGENT_PUBLISH_AI.md) — LLM-оркестратор `/api/publish/ai` (SSE).
+- [AGENT_API_GUIDE.md](AGENT_API_GUIDE.md) — публикация контента через Strapi API.
+- [AGENT_GITOPS.md](AGENT_GITOPS.md) — CI/CD деплой borisovai-admin.
+- [AGENT_SERVICES.md](AGENT_SERVICES.md) — CRUD Traefik/DNS (низкоуровневое ручное вмешательство).
+- [AGENT_ANALYTICS.md](AGENT_ANALYTICS.md) — интеграция Umami Analytics.
 
 ### AI-агент Management UI: доступные инструменты
 
