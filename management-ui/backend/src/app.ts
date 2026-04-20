@@ -27,6 +27,7 @@ import { monitoringRoutes } from './routes/monitoring.routes.js';
 import { tasksRoutes } from './routes/tasks.routes.js';
 import { casdoorRoutes } from './routes/casdoor.routes.js';
 import { crossSyncApiRoute, crossSyncAcceptRoute } from './routes/cross-sync.routes.js';
+import { publishRoutes } from './routes/publish.js';
 
 export interface AppOptions {
   logger?: boolean;
@@ -40,6 +41,11 @@ export async function buildApp(opts: AppOptions = {}): Promise<FastifyInstance> 
 
   // Error handler
   app.setErrorHandler(errorHandler);
+
+  // Raw binary parser для chunked uploads.
+  app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer' }, (_req, body, done) => {
+    done(null, body);
+  });
 
   // CORS: permissive in dev, same-origin in production.
   const isDev = process.env.NODE_ENV !== 'production';
@@ -61,7 +67,8 @@ export async function buildApp(opts: AppOptions = {}): Promise<FastifyInstance> 
   await app.register(dnsRoutes, { prefix: '/api/dns' });
   await app.register(servicesRoutes, { prefix: '/api/services' });
   await app.register(traefikRoutes, { prefix: '/api/traefik' });
-  await app.register(projectsRoutes, { prefix: '/api/publish' });
+  await app.register(projectsRoutes, { prefix: '/api/publish' }); // legacy endpoints
+  await app.register(publishRoutes, { prefix: '/api/publish' });  // AI Publisher phase 2
   await app.register(gitlabRoutes, { prefix: '/api/gitlab' });
   await app.register(contentRoutes, { prefix: '/api/content' });
   await app.register(usersRoutes, { prefix: '/api/authelia' });
