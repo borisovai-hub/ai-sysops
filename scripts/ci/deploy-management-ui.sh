@@ -59,6 +59,13 @@ rsync -av --delete \
     --exclude='*.tsbuildinfo' \
     "$REPO_ROOT/management-ui/" "$APP_DIR/"
 
+# Копируем docs/agents/ для AI Publisher system prompt (prompt.ts ищет здесь)
+if [ -d "$REPO_ROOT/docs/agents" ]; then
+    echo "Копирование docs/agents/ для AI Publisher..."
+    mkdir -p "$APP_DIR/docs"
+    rsync -av --delete "$REPO_ROOT/docs/agents/" "$APP_DIR/docs/agents/"
+fi
+
 # Обновление конфига (не трогаем auth.json и projects.json)
 if [ -f "$RENDERED_CONFIG" ]; then
     echo "Обновление конфига..."

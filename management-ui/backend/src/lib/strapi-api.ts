@@ -60,3 +60,54 @@ export async function createOrUpdateStrapiProject(
     return { done: false, error: message };
   }
 }
+
+/**
+ * Strapi v5 publish/unpublish через lifecycle endpoints.
+ * publish: PUT /<collection>/<id> с publishedAt = now
+ * unpublish: PUT /<collection>/<id> с publishedAt = null
+ */
+export async function setStrapiPublishStatus(
+  collection: string, id: string | number,
+  action: 'publish' | 'unpublish',
+): Promise<{ done: boolean; detail?: string; error?: string }> {
+  try {
+    const publishedAt = action === 'publish' ? new Date().toISOString() : null;
+    await strapiApi('put', `/${collection}/${id}`, { data: { publishedAt } });
+    return { done: true, detail: `Strapi ${collection}#${id} → ${action}` };
+  } catch (err: unknown) {
+    return { done: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Удалить запись Strapi по collection + id.
+ */
+export async function deleteStrapiEntry(
+  collection: string, id: string | number,
+): Promise<{ done: boolean; detail?: string; error?: string }> {
+  try {
+    await strapiApi('delete', `/${collection}/${id}`);
+    return { done: true, detail: `Strapi ${collection}#${id} удалён` };
+  } catch (err: unknown) {
+    return { done: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Найти id entry по slug в заданной коллекции (draft + published).
+ */
+export async function findStrapiEntryBySlug(
+  collection: string, slug: string,
+): Promise<{ id: number; documentId?: string } | null> {
+  try {
+    const res = (await strapiApi('get', `/${collection}?filters[slug][$eq]=${slug}`)) as {
+      data?: Array<{ id: number; documentId?: string }>;
+    };
+    if (res.data && res.data.length > 0) {
+      return { id: res.data[0].id, documentId: res.data[0].documentId };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

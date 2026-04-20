@@ -16,6 +16,8 @@ import { AgentPage } from './pages/AgentPage';
 import { MonitoringPage } from './pages/MonitoringPage';
 import { TasksPage } from './pages/TasksPage';
 import { CasdoorPage } from './pages/CasdoorPage';
+import { PublishPage } from './pages/PublishPage';
+import { PublishRunsPage } from './pages/PublishRunsPage';
 
 export function App() {
   return (
@@ -28,6 +30,8 @@ export function App() {
         <Route path="ru-proxy" element={<RuProxyPage />} />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="content" element={<ContentPage />} />
+        <Route path="publish" element={<PublishPage />} />
+        <Route path="publish/runs" element={<PublishRunsPage />} />
         <Route path="tunnels" element={<TunnelsPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="tasks" element={<TasksPage />} />

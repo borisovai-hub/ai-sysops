@@ -236,15 +236,31 @@ export async function patchRelease(
   const rows = await db.select().from(publishReleases)
     .where(and(eq(publishReleases.slug, slug), eq(publishReleases.version, version)));
   if (rows.length === 0) throw new NotFoundError(`RELEASE_NOT_FOUND: ${slug}@${version}`);
+  const row = rows[0];
   const updates: Partial<typeof publishReleases.$inferInsert> = {};
   if (patch.changelog != null) updates.changelog = patch.changelog;
-  if (patch.action === 'publish') updates.strapiStatus = 'published';
-  if (patch.action === 'unpublish') updates.strapiStatus = 'unpublished';
+
+  // Sync Strapi publish/unpublish если известен документ
+  if (patch.action && row.strapiDocumentId) {
+    try {
+      const { setStrapiPublishStatus } = await import('../../lib/strapi-api.js');
+      const r = await setStrapiPublishStatus('projects', row.strapiDocumentId, patch.action);
+      if (r.done) {
+        updates.strapiStatus = patch.action === 'publish' ? 'published' : 'unpublished';
+      } else {
+        logger.warn(`patchRelease: Strapi ${patch.action} failed:`, r.error);
+      }
+    } catch (err) {
+      logger.warn('patchRelease: Strapi import failed:', (err as Error).message);
+    }
+  } else if (patch.action) {
+    // Нет Strapi связи — обновим только статус в нашей базе
+    updates.strapiStatus = patch.action === 'publish' ? 'published' : 'unpublished';
+  }
   if (Object.keys(updates).length > 0) {
     await db.update(publishReleases).set(updates)
       .where(and(eq(publishReleases.slug, slug), eq(publishReleases.version, version)));
   }
-  // TODO: sync with Strapi publish/unpublish API когда появится helper.
   return getRelease(slug, version);
 }
 
@@ -275,8 +291,17 @@ export async function deleteRelease(
       }
     }
   }
+  // Strapi cleanup если запрошено
+  if (opts.removeStrapi && r.strapiDocumentId) {
+    try {
+      const { deleteStrapiEntry } = await import('../../lib/strapi-api.js');
+      const res = await deleteStrapiEntry('projects', r.strapiDocumentId);
+      if (!res.done) logger.warn(`deleteRelease: Strapi delete failed:`, res.error);
+    } catch (err) {
+      logger.warn('deleteRelease: Strapi import failed:', (err as Error).message);
+    }
+  }
   await db.delete(publishReleases)
     .where(and(eq(publishReleases.slug, slug), eq(publishReleases.version, version)));
-  // TODO: Strapi cleanup (removeStrapi). Пока только flag.
   return { deleted: true, removedFiles: removed };
 }

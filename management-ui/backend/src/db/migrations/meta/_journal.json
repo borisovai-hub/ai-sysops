@@ -29,6 +29,13 @@
       "when": 1776528000000,
       "tag": "0004_ai_publisher_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1776614400000,
+      "tag": "0005_auth_token_scopes",
+      "breakpoints": true
     }
   ]
 }

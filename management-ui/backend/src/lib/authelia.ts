@@ -255,3 +255,81 @@ export function updateNotifierConfig(req: UpdateNotifierRequest): void {
   writeFileSync(PATHS.AUTHELIA_CONFIG, replaced, 'utf-8');
   execCommandSafe(`chown authelia:authelia "${PATHS.AUTHELIA_CONFIG}" && chmod 600 "${PATHS.AUTHELIA_CONFIG}"`);
 }
+
+/**
+ * Ensure access_control rule exists for given domains with policy.
+ * Идемпотентно: если правило уже существует, добавляет только недостающие
+ * домены (не удаляет существующие).
+ *
+ * После изменений вызывает restartAuthelia().
+ */
+export function ensureAccessControl(
+  domains: string[], policy: 'bypass' | 'one_factor' | 'two_factor' = 'two_factor',
+): { added: string[]; alreadyPresent: string[] } {
+  if (!existsSync(PATHS.AUTHELIA_CONFIG)) {
+    throw new Error('Конфигурация Authelia не найдена');
+  }
+  const content = readFileSync(PATHS.AUTHELIA_CONFIG, 'utf-8');
+  const parsed = yaml.parse(content) as {
+    access_control?: {
+      default_policy?: string;
+      rules?: Array<{ domain?: string | string[]; policy?: string }>;
+    };
+  };
+  if (!parsed.access_control) parsed.access_control = { default_policy: 'deny', rules: [] };
+  if (!parsed.access_control.rules) parsed.access_control.rules = [];
+
+  const alreadyPresent: string[] = [];
+  const added: string[] = [];
+  for (const d of domains) {
+    const hit = parsed.access_control.rules.find(r => {
+      const dom = Array.isArray(r.domain) ? r.domain : [r.domain];
+      return dom.includes(d) && r.policy === policy;
+    });
+    if (hit) {
+      alreadyPresent.push(d);
+      continue;
+    }
+    parsed.access_control.rules.push({ domain: d, policy });
+    added.push(d);
+  }
+
+  if (added.length === 0) return { added, alreadyPresent };
+
+  copyFileSync(PATHS.AUTHELIA_CONFIG, PATHS.AUTHELIA_CONFIG + '.backup');
+  writeFileSync(PATHS.AUTHELIA_CONFIG, yaml.stringify(parsed), 'utf-8');
+  if (!isAutheliaGitOps()) {
+    execCommandSafe(`chown authelia:authelia "${PATHS.AUTHELIA_CONFIG}" && chmod 600 "${PATHS.AUTHELIA_CONFIG}"`);
+    restartAuthelia();
+  }
+  return { added, alreadyPresent };
+}
+
+/**
+ * Remove domains from access_control rules. Используется rollback.
+ */
+export function removeAccessControl(domains: string[]): { removed: string[] } {
+  if (!existsSync(PATHS.AUTHELIA_CONFIG)) return { removed: [] };
+  const content = readFileSync(PATHS.AUTHELIA_CONFIG, 'utf-8');
+  const parsed = yaml.parse(content) as {
+    access_control?: { rules?: Array<{ domain?: string | string[]; policy?: string }> };
+  };
+  const rules = parsed?.access_control?.rules;
+  if (!rules) return { removed: [] };
+  const removed: string[] = [];
+  const filtered = rules.filter(r => {
+    const dom = Array.isArray(r.domain) ? r.domain : [r.domain];
+    const match = dom.some(d => d && domains.includes(d));
+    if (match) removed.push(...dom.filter(d => d && domains.includes(d)) as string[]);
+    return !match;
+  });
+  if (removed.length === 0) return { removed };
+  parsed.access_control!.rules = filtered;
+  copyFileSync(PATHS.AUTHELIA_CONFIG, PATHS.AUTHELIA_CONFIG + '.backup');
+  writeFileSync(PATHS.AUTHELIA_CONFIG, yaml.stringify(parsed), 'utf-8');
+  if (!isAutheliaGitOps()) {
+    execCommandSafe(`chown authelia:authelia "${PATHS.AUTHELIA_CONFIG}" && chmod 600 "${PATHS.AUTHELIA_CONFIG}"`);
+    restartAuthelia();
+  }
+  return { removed };
+}

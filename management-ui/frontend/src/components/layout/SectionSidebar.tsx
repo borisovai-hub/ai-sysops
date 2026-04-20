@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft } from 'lucide-react';
 import {
   Server, Globe, Shield, Activity, ShieldCheck,
-  Package, FileText,
+  Package, FileText, Rocket, History,
   Cable, BarChart3, CheckSquare, FolderOpen, GitBranch,
   Users, Key, Bot,
 } from 'lucide-react';
@@ -23,6 +23,8 @@ const sidebarMap: Record<string, SidebarItem[]> = {
     { label: 'RU Proxy', path: '/ru-proxy', icon: Shield },
   ],
   projects: [
+    { label: 'Публикация', path: '/publish', icon: Rocket },
+    { label: 'История', path: '/publish/runs', icon: History },
     { label: 'Реестр', path: '/projects', icon: Package },
     { label: 'Контент', path: '/content', icon: FileText },
   ],

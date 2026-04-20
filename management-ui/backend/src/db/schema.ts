@@ -6,6 +6,9 @@ export const authTokens = sqliteTable('auth_tokens', {
   name: text('name').notNull().unique(),
   tokenHash: text('token_hash').notNull(),
   tokenPrefix: text('token_prefix').notNull(),
+  // JSON array of scopes, default ["*"] = full access (back-compat).
+  // Known scopes: "publish:write", "admin:write", "*".
+  scopes: text('scopes').notNull().default('["*"]'),
   createdAt: text('created_at').notNull(),
 });
 

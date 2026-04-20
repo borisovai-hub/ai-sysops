@@ -10,7 +10,15 @@ declare module 'fastify' {
     authMethod?: 'bearer' | 'authelia';
     authUser?: string;
     tokenName?: string;
+    tokenScopes?: string[];
   }
+}
+
+/** Глобальный scope: "*" даёт доступ ко всему (legacy токены). */
+export function hasScope(scopes: string[] | undefined, required: string): boolean {
+  if (!scopes || scopes.length === 0) return true; // legacy: нет scopes → полный доступ
+  if (scopes.includes('*')) return true;
+  return scopes.includes(required);
 }
 
 export interface AuthPluginOptions {
@@ -39,12 +47,17 @@ function compareTokenHash(providedToken: string, storedHash: string): boolean {
  * Validate a Bearer token against the database.
  * Returns the matching token entry or null.
  */
-export async function validateBearerToken(token: string): Promise<{ id: string; name: string } | null> {
+export async function validateBearerToken(token: string): Promise<{ id: string; name: string; scopes: string[] } | null> {
   const db = getDb();
   const allTokens = await db.select().from(authTokens);
   for (const entry of allTokens) {
     if (compareTokenHash(token, entry.tokenHash)) {
-      return { id: entry.id, name: entry.name };
+      let scopes: string[] = ['*'];
+      try {
+        const parsed = JSON.parse(entry.scopes);
+        if (Array.isArray(parsed)) scopes = parsed.map(String);
+      } catch { /* fallback to * */ }
+      return { id: entry.id, name: entry.name, scopes };
     }
   }
   return null;
@@ -63,6 +76,7 @@ async function authPluginFn(fastify: FastifyInstance, _opts: AuthPluginOptions) 
       if (entry) {
         request.authMethod = 'bearer';
         request.tokenName = entry.name;
+        request.tokenScopes = entry.scopes;
         return;
       }
       return reply.status(401).send({ error: 'Недействительный токен' });
@@ -85,6 +99,22 @@ async function authPluginFn(fastify: FastifyInstance, _opts: AuthPluginOptions) 
 
     // Not authenticated
     return reply.status(401).send({ error: 'Требуется авторизация' });
+  });
+
+  /**
+   * requireScope: фабрика preHandler для проверки scope (например "publish:write").
+   * Использует requireAuth под капотом. Authelia-пользователи получают все scope
+   * (они уже прошли 2FA и это интерактивный доступ).
+   */
+  fastify.decorate('requireScope', function (scope: string) {
+    return async function (request: FastifyRequest, reply: FastifyReply) {
+      await fastify.requireAuth(request, reply);
+      if (reply.sent) return;
+      if (request.authMethod === 'authelia') return; // interactive user
+      if (!hasScope(request.tokenScopes, scope)) {
+        return reply.status(403).send({ error: `INSUFFICIENT_SCOPE: требуется ${scope}` });
+      }
+    };
   });
 
   /**
@@ -117,5 +147,6 @@ declare module 'fastify' {
   interface FastifyInstance {
     requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireSessionAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireScope: (scope: string) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
