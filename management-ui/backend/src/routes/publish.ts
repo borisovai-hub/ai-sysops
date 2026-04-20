@@ -1,14 +1,20 @@
 import type { FastifyInstance } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import {
   publishPayloadSchema, createReleaseRequestSchema,
   uploadInitRequestSchema, rollbackRequestSchema,
+  publishAiRequestSchema,
 } from '@management-ui/shared';
 import { AppError } from '@management-ui/shared';
 import * as orchestrator from '../services/publish/orchestrator.js';
 import * as releasesService from '../services/publish/releases.js';
 import * as uploadsService from '../services/publish/uploads.js';
 import { verifyBySlug } from '../services/publish/verify.js';
-import { readFileSync } from 'node:fs';
+import {
+  runAiPublisher, resolveApproval, answerQuestion, type SseEvent,
+} from '../services/publish/ai/agent.js';
+import { invalidateCache, getCacheInfo } from '../services/publish/ai/prompt.js';
+import { listToolDefs } from '../services/publish/ai/tools-registry.js';
 
 export async function publishRoutes(fastify: FastifyInstance) {
   // POST /api/publish/service — инфрасервис
@@ -62,15 +68,29 @@ export async function publishRoutes(fastify: FastifyInstance) {
     return orchestrator.getRun(id);
   });
 
-  // GET /api/publish/schema — JSON Schema всех payload'ов (для UI и внешних LLM)
+  // GET /api/publish/schema — JSON Schema всех payload'ов
   fastify.get('/schema', { preHandler: [fastify.requireAuth] }, async () => {
-    // Возвращаем структуру с названиями; zod-to-json-schema можно подключить позже.
+    try {
+      const mod = (await import('zod-to-json-schema').catch(() => null)) as unknown as {
+        zodToJsonSchema?: (schema: unknown, name?: string) => unknown;
+      } | null;
+      if (mod && typeof mod.zodToJsonSchema === 'function') {
+        const to = mod.zodToJsonSchema;
+        const shared = await import('@management-ui/shared');
+        return {
+          publishPayload: to(shared.publishPayloadSchema, 'PublishPayload'),
+          publishRun: to(shared.publishRunSchema, 'PublishRun'),
+          createReleaseRequest: to(shared.createReleaseRequestSchema, 'CreateReleaseRequest'),
+          uploadInitRequest: to(shared.uploadInitRequestSchema, 'UploadInitRequest'),
+          publishAiRequest: to(shared.publishAiRequestSchema, 'PublishAiRequest'),
+          verifyResult: to(shared.verifyResultSchema, 'VerifyResult'),
+          tools: listToolDefs(),
+        };
+      }
+    } catch { /* fallback below */ }
     return {
-      publishPayload: 'see management-ui/shared/src/validation/publish-schemas.ts#publishPayloadSchema',
-      publishRun: 'see publishRunSchema',
-      publishAiRequest: 'see publishAiRequestSchema',
-      verifyResult: 'see verifyResultSchema',
-      note: 'Запуск zod-to-json-schema будет добавлен в Фазе 3 LLM-агента.',
+      note: 'zod-to-json-schema не установлен. См. management-ui/shared/src/validation/publish-schemas.ts.',
+      tools: listToolDefs(),
     };
   });
 
@@ -136,14 +156,61 @@ export async function publishRoutes(fastify: FastifyInstance) {
     return uploadsService.completeUpload(handle);
   });
 
-  // --- AI (stub until Phase 3) ---
+  // --- AI (SSE) ---
   fastify.post('/ai', { preHandler: [fastify.requireAuth] }, async (req, reply) => {
-    reply.code(501);
-    return {
-      error: 'NOT_IMPLEMENTED',
-      message: 'LLM-оркестратор /api/publish/ai будет реализован в Phase 3. ' +
-               'Используйте POST /api/publish/service|project с payload напрямую.',
-      contract: 'docs/agents/AGENT_PUBLISH_AI.md',
+    const body = publishAiRequestSchema.parse(req.body);
+    const sessionId = `sess_${randomUUID().slice(0, 12)}`;
+
+    reply.hijack();
+    const raw = reply.raw;
+    raw.setHeader('Content-Type', 'text/event-stream');
+    raw.setHeader('Cache-Control', 'no-cache, no-transform');
+    raw.setHeader('Connection', 'keep-alive');
+    raw.setHeader('X-Accel-Buffering', 'no');
+    raw.flushHeaders?.();
+
+    const emit = (e: SseEvent) => {
+      raw.write(`event: ${e.event}\n`);
+      raw.write(`data: ${JSON.stringify(e.data)}\n\n`);
     };
+
+    // Heartbeat, чтобы прокси не резали соединение
+    const heartbeat = setInterval(() => raw.write(': heartbeat\n\n'), 15_000);
+
+    try {
+      await runAiPublisher({
+        sessionId,
+        prompt: body.prompt,
+        approvals: body.approvals,
+        context: body.context,
+      }, emit);
+    } catch (err) {
+      emit({ event: 'error', data: { code: 'INTERNAL', message: (err as Error).message } });
+    } finally {
+      clearInterval(heartbeat);
+      raw.end();
+    }
+  });
+
+  // POST /api/publish/ai/approve/:sessionId — клиент подтверждает destructive tool
+  fastify.post('/ai/approve/:sessionId', { preHandler: [fastify.requireAuth] }, async (req) => {
+    const { approvalId, decision } = req.body as { approvalId?: string; decision?: 'approve' | 'reject' };
+    if (!approvalId || !decision) throw new AppError('approvalId и decision обязательны');
+    const ok = resolveApproval(approvalId, decision);
+    return { ok };
+  });
+
+  // POST /api/publish/ai/answer/:sessionId — ответ на LLM question
+  fastify.post('/ai/answer/:sessionId', { preHandler: [fastify.requireAuth] }, async (req) => {
+    const { sessionId } = req.params as { sessionId: string };
+    const { answer } = req.body as { answer?: string };
+    const ok = answerQuestion(sessionId, String(answer ?? ''));
+    return { ok };
+  });
+
+  // POST /api/publish/ai/invalidate-cache — перечитать AGENT_PUBLISH.md
+  fastify.post('/ai/invalidate-cache', { preHandler: [fastify.requireAuth] }, async () => {
+    invalidateCache();
+    return { ok: true, cache: getCacheInfo() };
   });
 }
