@@ -1,0 +1,38 @@
+# frpc-ollama-tier.toml -- Ollama dual tunnel (second machine with 2 Ollama instances)
+# Run: frpc.exe -c frpc-ollama-tier.toml
+#
+# Tiers:
+#   tier1   (port 11435) -> local Ollama at 11435 (hermes3:8b, extraction)
+#   tier23  (port 11436) -> local Ollama at 11436 (gemma4:e2b, reasoning + translation)
+#
+# Verify on server:
+#   curl http://localhost:11435/api/tags
+#   curl http://localhost:11436/api/tags
+
+# IP вместо hostname: см. комментарий в frpc.toml.
+serverAddr = "144.91.108.139"
+serverPort = 17420
+auth.token = "6LBjqYzczHmQ6U2Q8XCqVCtxstfudzs"
+
+# Keep retrying on connection failures instead of exiting
+loginFailExit = false
+dnsServer = "1.1.1.1"
+
+# Using frp defaults (heartbeatInterval=30, heartbeatTimeout=90)
+# Aggressive values caused reconnects every 30-90s on noisy networks
+
+# Tier 1 (extraction) -- hermes3:8b
+[[proxies]]
+name = "ollama-11435"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 11435
+remotePort = 11435
+
+# Tier 2/3 (reasoning + translation) -- gemma4:e2b
+[[proxies]]
+name = "ollama-11436"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 11436
+remotePort = 11436

@@ -1,0 +1,25 @@
+# frpc-ollama-11435.toml -- Ollama tunnel (second machine)
+# Services on server access Ollama at localhost:11435
+#
+# Download frpc: https://github.com/fatedier/frp/releases (frp_*_windows_amd64.zip -> frpc.exe)
+# Run: frpc.exe -c frpc-ollama-11435.toml
+# Verify on server: curl http://localhost:11435/api/tags
+
+# IP вместо hostname: см. комментарий в frpc.toml.
+serverAddr = "144.91.108.139"
+serverPort = 17420
+auth.token = "6LBjqYzczHmQ6U2Q8XCqVCtxstfudzs"
+
+# Keep retrying on connection failures instead of exiting
+loginFailExit = false
+dnsServer = "1.1.1.1"
+
+# Using frp defaults (heartbeatInterval=30, heartbeatTimeout=90)
+
+# TCP tunnel: server localhost:11435 -> local Ollama localhost:11434
+[[proxies]]
+name = "ollama-11435"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 11434
+remotePort = 11435

@@ -182,6 +182,14 @@ webServer.addr = "127.0.0.1"
 webServer.port = ${FRP_DASHBOARD_PORT}
 webServer.user = "admin"
 webServer.password = "${FRP_DASH_PASS}"
+
+# Разрешённые порты для TCP туннелей
+# 11434-11436 — Ollama (main + second machine tier1/tier23)
+# 17500-17599 — резерв для других TCP туннелей
+allowPorts = [
+  { start = 11434, end = 11436 },
+  { start = 17500, end = 17599 }
+]
 EOF
 
 chmod 600 "$FRP_CONFIG"
@@ -339,12 +347,23 @@ echo ""
 echo "  Секреты сохранены в: $CRED_DIR/frps"
 echo "  (auth token, dashboard password)"
 echo ""
+# Резолвим IP сервера однократно — клиентам НЕ нужно держать hostname,
+# при переподключении системный DNS может не ответить (no such host /
+# i/o timeout), что увеличивает downtime туннеля с секунд до минут.
+SERVER_IP="$(getent hosts "${FIRST_BASE}" | awk 'NR==1 {print $1}')"
+if [[ -z "$SERVER_IP" ]]; then
+    SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+fi
+
 echo "  Для клиента (Windows):"
 echo "    1. Скачайте frpc: https://github.com/fatedier/frp/releases (frp_*_windows_amd64.zip)"
 echo "    2. Создайте frpc.toml (auth.token — из $CRED_DIR/frps):"
-echo "       serverAddr = \"${FIRST_BASE}\""
+echo "       # IP, не hostname — иначе клиент зависает при DNS-сбое"
+echo "       serverAddr = \"${SERVER_IP:-144.91.108.139}\""
 echo "       serverPort = ${FRP_CONTROL_PORT}"
 echo "       auth.token = \"<см. $CRED_DIR/frps>\""
+echo "       loginFailExit = false"
+echo "       dnsServer = \"1.1.1.1\""
 echo "       [[proxies]]"
 echo "       name = \"my-project\""
 echo "       type = \"http\""
