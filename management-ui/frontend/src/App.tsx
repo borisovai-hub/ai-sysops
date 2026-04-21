@@ -18,6 +18,7 @@ import { TasksPage } from './pages/TasksPage';
 import { CasdoorPage } from './pages/CasdoorPage';
 import { PublishPage } from './pages/PublishPage';
 import { PublishRunsPage } from './pages/PublishRunsPage';
+import { ReleasesPage } from './pages/ReleasesPage';
 
 export function App() {
   return (
@@ -32,6 +33,7 @@ export function App() {
         <Route path="content" element={<ContentPage />} />
         <Route path="publish" element={<PublishPage />} />
         <Route path="publish/runs" element={<PublishRunsPage />} />
+        <Route path="releases" element={<ReleasesPage />} />
         <Route path="tunnels" element={<TunnelsPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="tasks" element={<TasksPage />} />

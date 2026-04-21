@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../client';
+import { api, apiFetch } from '../client';
 import type { PublishRun } from '../queries/publish';
 
 export function usePublishService() {
@@ -44,5 +44,41 @@ export function useApproveAi() {
         approvalId: params.approvalId,
         decision: params.decision,
       }),
+  });
+}
+
+// --- Releases ---
+
+export function useCreateRelease() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { slug: string; body: Record<string, unknown> }) =>
+      api.post(`/api/publish/releases/${params.slug}`, params.body),
+    onSuccess: (_, v) => qc.invalidateQueries({ queryKey: ['publish-releases', v.slug] }),
+  });
+}
+
+export function usePatchRelease() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { slug: string; version: string; action?: 'publish' | 'unpublish'; changelog?: string }) =>
+      apiFetch(`/api/publish/releases/${params.slug}/${encodeURIComponent(params.version)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ action: params.action, changelog: params.changelog }),
+      }),
+    onSuccess: (_, v) => qc.invalidateQueries({ queryKey: ['publish-releases', v.slug] }),
+  });
+}
+
+export function useDeleteRelease() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { slug: string; version: string; removeArtifacts?: boolean; removeStrapi?: boolean }) =>
+      api.delete(`/api/publish/releases/${params.slug}/${encodeURIComponent(params.version)}`, {
+        confirmDestructive: true,
+        removeArtifacts: params.removeArtifacts,
+        removeStrapi: params.removeStrapi,
+      }),
+    onSuccess: (_, v) => qc.invalidateQueries({ queryKey: ['publish-releases', v.slug] }),
   });
 }

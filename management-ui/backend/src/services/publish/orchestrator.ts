@@ -19,7 +19,7 @@ import { strapiTool } from './tools/strapi.tool.js';
 import { installTool } from './tools/install.tool.js';
 import { releaseTool } from './tools/release.tool.js';
 
-function planSteps(payload: PublishPayload): PublishTool[] {
+export function planSteps(payload: PublishPayload): PublishTool[] {
   const tools: PublishTool[] = [];
   // Общие инфра-шаги
   tools.push(dnsTool);

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft } from 'lucide-react';
 import {
   Server, Globe, Shield, Activity, ShieldCheck,
-  Package, FileText, Rocket, History,
+  Package, FileText, Rocket, History, Package2,
   Cable, BarChart3, CheckSquare, FolderOpen, GitBranch,
   Users, Key, Bot,
 } from 'lucide-react';
@@ -25,6 +25,7 @@ const sidebarMap: Record<string, SidebarItem[]> = {
   projects: [
     { label: 'Публикация', path: '/publish', icon: Rocket },
     { label: 'История', path: '/publish/runs', icon: History },
+    { label: 'Релизы', path: '/releases', icon: Package2 },
     { label: 'Реестр', path: '/projects', icon: Package },
     { label: 'Контент', path: '/content', icon: FileText },
   ],
