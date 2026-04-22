@@ -9,7 +9,7 @@ import { SidebarContent } from './SectionSidebar';
 const sections = [
   { label: 'Инфра', icon: Server, paths: ['/', '/monitoring', '/dns', '/ru-proxy'] },
   { label: 'Проекты', icon: Package, paths: ['/publish', '/publish/runs', '/releases', '/projects', '/content'] },
-  { label: 'Инструменты', icon: Wrench, paths: ['/tunnels', '/analytics', '/tasks', '/files', '/git'] },
+  { label: 'Инструменты', icon: Wrench, paths: ['/logs', '/tunnels', '/analytics', '/tasks', '/files', '/git'] },
   { label: 'Админ', icon: ShieldCheck, paths: ['/users', '/tokens'] },
   { label: 'Агент', icon: Bot, paths: ['/agent'] },
 ];

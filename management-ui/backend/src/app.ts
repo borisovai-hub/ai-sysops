@@ -28,6 +28,7 @@ import { tasksRoutes } from './routes/tasks.routes.js';
 import { casdoorRoutes } from './routes/casdoor.routes.js';
 import { crossSyncApiRoute, crossSyncAcceptRoute } from './routes/cross-sync.routes.js';
 import { publishRoutes } from './routes/publish.js';
+import { logsRoutes } from './routes/logs.routes.js';
 
 export interface AppOptions {
   logger?: boolean;
@@ -86,6 +87,7 @@ export async function buildApp(opts: AppOptions = {}): Promise<FastifyInstance> 
   await app.register(monitoringRoutes, { prefix: '/api/monitoring' });
   await app.register(tasksRoutes, { prefix: '/api/tasks' });
   await app.register(casdoorRoutes, { prefix: '/api/casdoor' });
+  await app.register(logsRoutes, { prefix: '/api/logs' });
 
   // Health check
   app.get('/api/health', async () => {

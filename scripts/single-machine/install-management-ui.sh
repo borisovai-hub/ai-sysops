@@ -404,6 +404,9 @@ NoNewPrivileges=false
 ProtectSystem=strict
 ReadWritePaths=/etc/management-ui /var/log /var/lib/management-ui /opt/server-configs
 PrivateTmp=true
+# Чтение логов: systemd-journal → journalctl без sudo; docker → docker logs.
+# /api/logs/* использует эти группы для whitelisted просмотра из UI.
+SupplementaryGroups=systemd-journal docker
 
 [Install]
 WantedBy=multi-user.target

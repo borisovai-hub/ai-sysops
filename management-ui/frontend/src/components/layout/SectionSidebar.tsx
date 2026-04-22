@@ -5,7 +5,7 @@ import { PanelLeftClose, PanelLeft } from 'lucide-react';
 import {
   Server, Globe, Shield, Activity, ShieldCheck,
   Package, FileText, Rocket, History, Package2,
-  Cable, BarChart3, CheckSquare, FolderOpen, GitBranch,
+  Cable, BarChart3, CheckSquare, FolderOpen, GitBranch, ScrollText,
   Users, Key, Bot,
 } from 'lucide-react';
 
@@ -30,6 +30,7 @@ const sidebarMap: Record<string, SidebarItem[]> = {
     { label: 'Контент', path: '/content', icon: FileText },
   ],
   tools: [
+    { label: 'Логи', path: '/logs', icon: ScrollText },
     { label: 'Туннели', path: '/tunnels', icon: Cable },
     { label: 'Аналитика', path: '/analytics', icon: BarChart3 },
     { label: 'Задачи', path: '/tasks', icon: CheckSquare },

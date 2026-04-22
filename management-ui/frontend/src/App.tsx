@@ -19,6 +19,7 @@ import { CasdoorPage } from './pages/CasdoorPage';
 import { PublishPage } from './pages/PublishPage';
 import { PublishRunsPage } from './pages/PublishRunsPage';
 import { ReleasesPage } from './pages/ReleasesPage';
+import { LogsPage } from './pages/LogsPage';
 
 export function App() {
   return (
@@ -34,6 +35,7 @@ export function App() {
         <Route path="publish" element={<PublishPage />} />
         <Route path="publish/runs" element={<PublishRunsPage />} />
         <Route path="releases" element={<ReleasesPage />} />
+        <Route path="logs" element={<LogsPage />} />
         <Route path="tunnels" element={<TunnelsPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="tasks" element={<TasksPage />} />
