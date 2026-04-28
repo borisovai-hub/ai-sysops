@@ -17,6 +17,11 @@ dnsServer = "1.1.1.1"
 
 # QUIC — нативный keepalive, не страдает от heartbeat-флапов KCP
 transport.protocol = "quic"
+# Pre-allocate connection pool — низкая latency на новые user connections под нагрузкой
+transport.poolCount = 10
+# QUIC keepalive — не даём UDP NAT (VPN/CGNAT) закрыть сессию
+transport.quic.keepalivePeriod = 10
+transport.quic.maxIdleTimeout = 60
 
 # TCP tunnel: server localhost:11434 -> local Ollama localhost:11434
 [[proxies]]

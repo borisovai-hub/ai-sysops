@@ -94,8 +94,13 @@ auth.token = "$AuthToken"
 loginFailExit = false
 dnsServer = "1.1.1.1"
 
-# QUIC — нативный keepalive, не страдает от heartbeat-флапов KCP
+# QUIC -- native keepalive, no KCP-style heartbeat flaps
 transport.protocol = "quic"
+# Pre-allocate connection pool -- low latency for parallel user connections
+transport.poolCount = 10
+# QUIC keepalive -- prevents UDP NAT (VPN/CGNAT) from closing session
+transport.quic.keepalivePeriod = 10
+transport.quic.maxIdleTimeout = 60
 
 [[proxies]]
 name = "$ProxyName"
