@@ -174,6 +174,8 @@ cat > "$FRP_CONFIG" << EOF
 bindPort = ${FRP_CONTROL_PORT}
 # KCP (UDP reliable) на том же порту — переживает packet loss, MTTR 1–3 c
 kcpBindPort = ${FRP_CONTROL_PORT}
+# QUIC (рекомендуется) — нативный keepalive, не флапает как KCP
+quicBindPort = $((FRP_CONTROL_PORT + 1))
 vhostHTTPPort = ${FRP_VHOST_PORT}
 subdomainHost = "${SUBDOMAIN_HOST}"
 
@@ -314,9 +316,10 @@ echo "[6/6] Настройка firewall..."
 if command -v ufw &>/dev/null; then
     ufw allow "${FRP_CONTROL_PORT}/tcp" comment "frp control channel" 2>/dev/null
     ufw allow "${FRP_CONTROL_PORT}/udp" comment "frp KCP transport" 2>/dev/null
-    echo "  [OK] Порт ${FRP_CONTROL_PORT}/tcp+udp открыт (ufw)"
+    ufw allow "$((FRP_CONTROL_PORT + 1))/udp" comment "frp QUIC transport" 2>/dev/null
+    echo "  [OK] Порты ${FRP_CONTROL_PORT}/tcp+udp + $((FRP_CONTROL_PORT + 1))/udp открыты (ufw)"
 else
-    echo "  [Пропуск] ufw не установлен. Откройте порт ${FRP_CONTROL_PORT}/tcp+udp вручную."
+    echo "  [Пропуск] ufw не установлен. Откройте порты ${FRP_CONTROL_PORT}/tcp+udp + $((FRP_CONTROL_PORT + 1))/udp вручную."
 fi
 
 # ============================================================

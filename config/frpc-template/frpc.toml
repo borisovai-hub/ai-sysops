@@ -7,7 +7,7 @@
 # периодически не резолвит borisovai.tech (no such host / i/o timeout),
 # что превращает короткий разрыв TCP в длительный downtime туннеля.
 serverAddr = "144.91.108.139"
-serverPort = 17420
+serverPort = 17421
 auth.token = "ВСТАВЬТЕ_ТОКЕН_ИЗ_/etc/frp/frps.toml"
 
 # Keep retrying on connection failures instead of exiting.
@@ -17,11 +17,8 @@ loginFailExit = false
 # Независимо от локального systemd-resolved / DHCP.
 dnsServer = "1.1.1.1"
 
-# KCP (UDP reliable, аналог QUIC) — переживает packet loss до 30%,
-# восстановление сессии 1–3 c вместо 30–90 c TCP heartbeat.
-transport.protocol = "kcp"
-transport.heartbeatInterval = 15
-transport.heartbeatTimeout = 45
+# QUIC — нативный keepalive, не страдает от heartbeat-флапов KCP
+transport.protocol = "quic"
 
 # HTTP туннель (самый частый сценарий)
 # Результат: https://my-project.tunnel.borisovai.ru → localhost:3000

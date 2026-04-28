@@ -13,7 +13,7 @@ param(
     # IP вместо hostname: при переподключении DNS-резолв периодически
     # падает (no such host / i/o timeout), туннель лежит минутами.
     [string]$ServerAddr = '144.91.108.139',
-    [int]$ServerPort = 17420,
+    [int]$ServerPort = 17421,
     [string]$AuthToken = '6LBjqYzczHmQ6U2Q8XCqVCtxstfudzs',
     [int]$LocalPort = 11434,
     [int[]]$RemotePorts = @(11435, 11436),
@@ -144,10 +144,8 @@ loginFailExit = false
 # Resolve external lookups via public DNS (no local resolver dependency)
 dnsServer = "1.1.1.1"
 
-# KCP (UDP reliable) -- MTTR 1-3s vs 30-90s TCP heartbeat
-transport.protocol = "kcp"
-transport.heartbeatInterval = 15
-transport.heartbeatTimeout = 45
+# QUIC -- native keepalive, no KCP-style heartbeat flaps
+transport.protocol = "quic"
 $proxiesBlock
 "@
     [System.IO.File]::WriteAllText($configPath, $config)

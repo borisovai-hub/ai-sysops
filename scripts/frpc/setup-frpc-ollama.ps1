@@ -12,7 +12,7 @@ param(
     # IP вместо hostname: при переподключении DNS-резолв периодически
     # падает (no such host / i/o timeout), туннель лежит минутами.
     [string]$ServerAddr = '144.91.108.139',
-    [int]$ServerPort = 17420,
+    [int]$ServerPort = 17421,
     [string]$AuthToken = '6LBjqYzczHmQ6U2Q8XCqVCtxstfudzs',
     [int]$LocalPort = 11434,
     [int]$RemotePort = 11435,
@@ -94,10 +94,8 @@ auth.token = "$AuthToken"
 loginFailExit = false
 dnsServer = "1.1.1.1"
 
-# KCP (UDP reliable) — MTTR 1-3s vs 30-90s TCP heartbeat
-transport.protocol = "kcp"
-transport.heartbeatInterval = 15
-transport.heartbeatTimeout = 45
+# QUIC — нативный keepalive, не страдает от heartbeat-флапов KCP
+transport.protocol = "quic"
 
 [[proxies]]
 name = "$ProxyName"
