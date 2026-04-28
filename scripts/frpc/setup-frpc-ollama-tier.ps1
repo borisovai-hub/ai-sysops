@@ -144,8 +144,10 @@ loginFailExit = false
 # Resolve external lookups via public DNS (no local resolver dependency)
 dnsServer = "1.1.1.1"
 
-# Use default heartbeat settings (interval=30s, timeout=90s)
-# Aggressive values caused reconnects every 30-90s on noisy networks
+# KCP (UDP reliable) -- MTTR 1-3s vs 30-90s TCP heartbeat
+transport.protocol = "kcp"
+transport.heartbeatInterval = 15
+transport.heartbeatTimeout = 45
 $proxiesBlock
 "@
     [System.IO.File]::WriteAllText($configPath, $config)

@@ -94,6 +94,11 @@ auth.token = "$AuthToken"
 loginFailExit = false
 dnsServer = "1.1.1.1"
 
+# KCP (UDP reliable) — MTTR 1-3s vs 30-90s TCP heartbeat
+transport.protocol = "kcp"
+transport.heartbeatInterval = 15
+transport.heartbeatTimeout = 45
+
 [[proxies]]
 name = "$ProxyName"
 type = "tcp"

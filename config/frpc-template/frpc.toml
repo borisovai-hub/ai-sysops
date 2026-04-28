@@ -17,6 +17,12 @@ loginFailExit = false
 # Независимо от локального systemd-resolved / DHCP.
 dnsServer = "1.1.1.1"
 
+# KCP (UDP reliable, аналог QUIC) — переживает packet loss до 30%,
+# восстановление сессии 1–3 c вместо 30–90 c TCP heartbeat.
+transport.protocol = "kcp"
+transport.heartbeatInterval = 15
+transport.heartbeatTimeout = 45
+
 # HTTP туннель (самый частый сценарий)
 # Результат: https://my-project.tunnel.borisovai.ru → localhost:3000
 [[proxies]]

@@ -172,6 +172,8 @@ cat > "$FRP_CONFIG" << EOF
 # Документация: https://gofrp.org/en/docs/
 
 bindPort = ${FRP_CONTROL_PORT}
+# KCP (UDP reliable) на том же порту — переживает packet loss, MTTR 1–3 c
+kcpBindPort = ${FRP_CONTROL_PORT}
 vhostHTTPPort = ${FRP_VHOST_PORT}
 subdomainHost = "${SUBDOMAIN_HOST}"
 
@@ -311,9 +313,10 @@ echo "[6/6] Настройка firewall..."
 
 if command -v ufw &>/dev/null; then
     ufw allow "${FRP_CONTROL_PORT}/tcp" comment "frp control channel" 2>/dev/null
-    echo "  [OK] Порт ${FRP_CONTROL_PORT}/tcp открыт (ufw)"
+    ufw allow "${FRP_CONTROL_PORT}/udp" comment "frp KCP transport" 2>/dev/null
+    echo "  [OK] Порт ${FRP_CONTROL_PORT}/tcp+udp открыт (ufw)"
 else
-    echo "  [Пропуск] ufw не установлен. Откройте порт ${FRP_CONTROL_PORT}/tcp вручную."
+    echo "  [Пропуск] ufw не установлен. Откройте порт ${FRP_CONTROL_PORT}/tcp+udp вручную."
 fi
 
 # ============================================================
