@@ -81,20 +81,35 @@ git checkout main -f
 
 После этого `POST /api/servers/firstvds-sm-22/sync` начнёт получать обновления.
 
-## 4. Публичный DNS для ca.tunnel.borisovai.ru
+## 4. Публичный DNS для ca.tunnel.borisovai.ru → 82.146.56.174 (через RU Proxy)
 
-Сейчас на firstvds запись добавлена через `/etc/hosts` (idempotent в install-node-agent.sh). Это работает, но фрагильно — при добавлении 3+ серверов администратор должен помнить про hosts entry.
+**Архитектура изменена**: ca.tunnel.borisovai.ru теперь идёт через RU Proxy (Caddy на 82.146.56.174), а не напрямую на contabo. Это унифицирует подход с другими .ru-доменами и даёт legitimate LE-серт вместо self-signed.
 
-NS у borisovai.ru — ihc.ru (хостинг-провайдер). Cloudflare API не настроен. Действие:
-1. Войти в панель ihc.ru
-2. Добавить A-запись: `ca.tunnel.borisovai.ru` → `144.91.108.139` (TTL 300)
-3. После пропагандации проверить: `dig +short ca.tunnel.borisovai.ru`
-4. После этого можно убрать `/etc/hosts` хак на firstvds:
+Поток: `client → Caddy(LE-cert) → contabo Traefik → step-ca:9000`
+
+**Сделано автоматически:**
+- Caddy блок на RU VPS (`/etc/caddy/Caddyfile` — `ca.tunnel.borisovai.ru { reverse_proxy https://144.91.108.139 ... tls_insecure_skip_verify }`)
+- Запись в `/etc/ru-proxy/domains.json` через RU proxy API на :3100
+- Внутренний DNS API на contabo: `ca.tunnel.borisovai.ru → 82.146.56.174`
+- `.tech` оставлен на 144.91.108.139 (direct, не через RU)
+
+**Что заблокировано:** Caddy не может получить LE-серт, пока публичный DNS не указывает на RU VPS — видно в `journalctl -u caddy` на 82.146.56.174 как `NXDOMAIN looking up A for ca.tunnel.borisovai.ru`. Caddy ретраит каждые 2 минуты.
+
+**Действие пользователя:**
+1. Войти в панель ihc.ru → DNS зоны → borisovai.ru
+2. Добавить A-запись: `ca.tunnel` → `82.146.56.174`, TTL 300
+3. Проверить пропагацию: `host ca.tunnel.borisovai.ru 8.8.8.8`
+4. Caddy получит LE-серт автоматически в течение ~5 мин — проверить:
    ```bash
-   ssh root@157.22.203.22 "sed -i '/ca.tunnel.borisovai.ru/d' /etc/hosts"
+   ssh root@82.146.56.174 'curl -sI https://ca.tunnel.borisovai.ru/health | head -3'
+   ```
+5. Убрать /etc/hosts hack на firstvds:
+   ```bash
+   ssh root@157.22.203.22 'sed -i "/ca.tunnel.borisovai.ru/d" /etc/hosts'
+   systemctl start node-agent-cert-renew.service  # принудительная ротация
    ```
 
-Альтернатива (если планируется много серверов): мигрировать DNS на Cloudflare и добавить API-токен в management-ui для автоматизации.
+При добавлении 3-го сервера: install-node-agent.sh продолжает добавлять /etc/hosts hack, но если публичный DNS уже есть, hack просто не нужен (можно убрать после установки).
 
 ## 5. CI/CD деплой management-ui (вместо ручного scp)
 
