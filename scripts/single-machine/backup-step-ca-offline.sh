@@ -44,14 +44,46 @@ tar czf "$ARCHIVE" \
 SIZE=$(du -h "$ARCHIVE" | cut -f1)
 echo "  [OK] Архив: $ARCHIVE ($SIZE)"
 
-# 2. GPG шифрование (interactive — passphrase запросится gpg)
+# 2. GPG шифрование. Читаем passphrase сами (gpg-agent не работает в non-TTY SSH).
 echo ""
 echo "[2/4] GPG-шифрование..."
-echo "  Введите passphrase для AES256 шифрования (БУДЕТ запрошена дважды)."
 echo "  ВАЖНО: passphrase храните в password manager (Bitwarden/1Password) ОТДЕЛЬНО"
 echo "  от файла бэкапа. Если passphrase утерян — ключ не восстановить."
+echo "  Минимум 16 символов, micszhno буквы/цифры/спецсимволы."
 echo ""
-gpg --symmetric --cipher-algo AES256 --output "${ARCHIVE}.gpg" "$ARCHIVE"
+
+# Читаем passphrase дважды и сравниваем
+PASS=""
+PASS_CONFIRM=""
+while true; do
+    read -r -s -p "  Passphrase: " PASS
+    echo
+    if [ ${#PASS} -lt 12 ]; then
+        echo "  Слишком короткая (нужно ≥12 символов). Повторите."
+        continue
+    fi
+    read -r -s -p "  Повторите: " PASS_CONFIRM
+    echo
+    if [ "$PASS" != "$PASS_CONFIRM" ]; then
+        echo "  Не совпадают. Повторите."
+        continue
+    fi
+    break
+done
+unset PASS_CONFIRM
+
+# Шифрование с явным passphrase через stdin (loopback pinentry)
+printf '%s' "$PASS" | gpg --batch --yes --pinentry-mode loopback \
+    --passphrase-fd 0 \
+    --symmetric --cipher-algo AES256 \
+    --output "${ARCHIVE}.gpg" "$ARCHIVE"
+RC=$?
+unset PASS
+if [ $RC -ne 0 ] || [ ! -f "${ARCHIVE}.gpg" ]; then
+    echo "  [ОШИБКА] GPG шифрование не удалось"
+    rm -f "$ARCHIVE" "${ARCHIVE}.gpg"
+    exit 1
+fi
 echo "  [OK] Зашифрованный архив: ${ARCHIVE}.gpg"
 
 # 3. Шреддить незашифрованный
