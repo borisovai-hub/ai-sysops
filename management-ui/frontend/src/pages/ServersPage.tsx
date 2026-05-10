@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Server, Plus, Trash2, RefreshCw, KeyRound, ClipboardCopy, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { Server, Plus, Trash2, RefreshCw, KeyRound, ClipboardCopy, CheckCircle2, XCircle, AlertTriangle, GitPullRequest } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -15,6 +15,7 @@ import {
   useDeleteServer,
   useTestServer,
   useRotateBootstrapToken,
+  useSyncServerConfig,
   type ServerWithHealth,
 } from '@/api/queries/servers';
 import type { CreateServerResponse } from '@management-ui/shared';
@@ -157,6 +158,7 @@ function AddServerDialog({ onCreated }: { onCreated: (resp: CreateServerResponse
 function ServerCard({ s }: { s: ServerWithHealth }) {
   const test = useTestServer();
   const rotate = useRotateBootstrapToken();
+  const sync = useSyncServerConfig();
   const del = useDeleteServer();
   const [tokenDialog, setTokenDialog] = useState<CreateServerResponse | null>(null);
 
@@ -205,6 +207,21 @@ function ServerCard({ s }: { s: ServerWithHealth }) {
           })} disabled={rotate.isPending}>
             <KeyRound className="h-3 w-3" />
             Новый токен
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => sync.mutate(s.name, {
+            onSuccess: (r) => {
+              if (!r.reachable) {
+                toast.error(`sync failed: ${r.error}`);
+                return;
+              }
+              const changed = r.data?.changed_files?.length ?? 0;
+              const reloaded = Object.entries(r.data?.triggered_reloads ?? {}).filter(([, v]) => v).map(([k]) => k);
+              toast.success(`${s.name}: ${changed} файл${changed === 1 ? '' : 'ов'} изменено${reloaded.length ? `, reload: ${reloaded.join(',')}` : ''}`);
+            },
+            onError: (e: Error) => toast.error(e.message),
+          })} disabled={sync.isPending}>
+            <GitPullRequest className={`h-3 w-3 ${sync.isPending ? 'animate-pulse' : ''}`} />
+            Sync configs
           </Button>
           {s.role !== 'primary' && (
             <Button size="sm" variant="ghost" onClick={() => {

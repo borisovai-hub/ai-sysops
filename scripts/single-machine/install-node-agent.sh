@@ -122,6 +122,37 @@ if [ "$NODE_OK" != true ]; then
     apt-get install -y nodejs 2>&1 | tail -3
 fi
 
+# /etc/hosts entry для CA URL: ca.tunnel.borisovai.ru на secondary не
+# в публичном DNS, без записи step ca bootstrap не сработает.
+# Идемпотентно: если запись уже есть, не дублируем.
+if [ -n "$CA_URL" ] && [[ "$CA_URL" =~ https?://([^:/]+) ]]; then
+    CA_HOST="${BASH_REMATCH[1]}"
+    if [[ "$CA_HOST" != "127.0.0.1" ]] && [[ "$CA_HOST" != "localhost" ]] && ! grep -q "^[^#]*[[:space:]]${CA_HOST}\b" /etc/hosts; then
+        # Получаем IP primary через DNS public lookup или используем дефолт
+        PRIMARY_IP=$(getent ahostsv4 "${CA_HOST}" 2>/dev/null | awk 'NR==1{print $1}')
+        if [ -z "$PRIMARY_IP" ]; then
+            PRIMARY_IP="144.91.108.139"  # дефолт для borisovai.ru
+        fi
+        echo "${PRIMARY_IP} ${CA_HOST}" >> /etc/hosts
+        echo "  [OK] Добавлено в /etc/hosts: ${PRIMARY_IP} ${CA_HOST}"
+    fi
+fi
+
+# step CLI — нужен для bootstrap и cert renewal
+if ! command -v step &>/dev/null; then
+    echo "  Установка step CLI..."
+    STEP_VERSION="0.28.2"
+    ARCH=$(uname -m)
+    case $ARCH in x86_64) STEP_ARCH=amd64 ;; aarch64) STEP_ARCH=arm64 ;; *) echo "unsupported $ARCH"; exit 1 ;; esac
+    TMP=$(mktemp -d)
+    curl -fsSL -o "$TMP/step.tgz" "https://github.com/smallstep/cli/releases/download/v${STEP_VERSION}/step_linux_${STEP_VERSION}_${STEP_ARCH}.tar.gz"
+    tar xzf "$TMP/step.tgz" -C "$TMP"
+    cp "$TMP/step_${STEP_VERSION}/bin/step" /usr/local/bin/step
+    chmod +x /usr/local/bin/step
+    rm -rf "$TMP"
+    echo "  [OK] step v${STEP_VERSION} установлен"
+fi
+
 # ============================================================
 # [2/7] Копирование исходников + сборка
 # ============================================================
@@ -130,10 +161,28 @@ echo "[2/7] Копирование исходников..."
 INSTALL_DIR="/opt/node-agent"
 mkdir -p "$INSTALL_DIR"
 
+copy_source() {
+    local src="$1"
+    local dst="$2"
+    if command -v rsync &>/dev/null; then
+        rsync -a --delete --exclude=node_modules --exclude=dist "$src/" "$dst/"
+    else
+        # Fallback без rsync — чистим dst (кроме node_modules для скорости) и копируем
+        find "$dst" -mindepth 1 -maxdepth 1 ! -name node_modules -exec rm -rf {} + 2>/dev/null
+        for item in "$src"/* "$src"/.[!.]* "$src"/..?*; do
+            [ -e "$item" ] || continue
+            base=$(basename "$item")
+            [ "$base" = node_modules ] && continue
+            [ "$base" = dist ] && continue
+            cp -a "$item" "$dst/"
+        done
+    fi
+}
+
 if [ -d "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/package.json" ]; then
-    rsync -a --delete --exclude=node_modules --exclude=dist "$SOURCE_DIR/" "$INSTALL_DIR/"
+    copy_source "$SOURCE_DIR" "$INSTALL_DIR"
 elif [ -d /opt/borisovai-admin/management-ui/node-agent ]; then
-    rsync -a --delete --exclude=node_modules --exclude=dist /opt/borisovai-admin/management-ui/node-agent/ "$INSTALL_DIR/"
+    copy_source "/opt/borisovai-admin/management-ui/node-agent" "$INSTALL_DIR"
 else
     echo "  [ОШИБКА] Не найден source: ${SOURCE_DIR} или /opt/borisovai-admin/management-ui/node-agent/"
     exit 1
@@ -179,10 +228,12 @@ else
     if [ -f /etc/step-ca/certs/root_ca.crt ]; then
         # Локальный CA — fingerprint доступен напрямую
         ROOT_FP=$(/usr/local/bin/step certificate fingerprint /etc/step-ca/certs/root_ca.crt)
+    elif [ -n "$STEP_CA_ROOT_FINGERPRINT" ]; then
+        ROOT_FP="$STEP_CA_ROOT_FINGERPRINT"
     else
         ROOT_FP=$(get_config_value "step_ca_root_fingerprint" 2>/dev/null)
         if [ -z "$ROOT_FP" ]; then
-            echo "  [ОШИБКА] Не найден root fingerprint. Укажите --ca-url и cf через --root-fingerprint, или установите вручную."
+            echo "  [ОШИБКА] Не найден root fingerprint. Передайте через STEP_CA_ROOT_FINGERPRINT env var или --bootstrap-token из админки."
             exit 1
         fi
     fi
@@ -225,8 +276,23 @@ else
     fi
 
     # CA bundle (root + intermediate) для проверки клиентских cert'ов
-    cat /etc/step-ca/certs/root_ca.crt /etc/step-ca/certs/intermediate_ca.crt 2>/dev/null > "$CERT_DIR/ca.crt" || \
-    cp "$AGENT_STEPPATH/certs/root_ca.crt" "$CERT_DIR/ca.crt"
+    if [ -f /etc/step-ca/certs/root_ca.crt ] && [ -f /etc/step-ca/certs/intermediate_ca.crt ]; then
+        cat /etc/step-ca/certs/root_ca.crt /etc/step-ca/certs/intermediate_ca.crt > "$CERT_DIR/ca.crt"
+    elif [ -n "$STEP_CA_INTERMEDIATE_PEM" ]; then
+        cp "$AGENT_STEPPATH/certs/root_ca.crt" "$CERT_DIR/ca.crt"
+        echo "$STEP_CA_INTERMEDIATE_PEM" >> "$CERT_DIR/ca.crt"
+    else
+        cp "$AGENT_STEPPATH/certs/root_ca.crt" "$CERT_DIR/ca.crt"
+    fi
+
+    # Bundle leaf + intermediate в agent.crt — нужно чтобы серверный TLS
+    # отдавал полную цепочку клиенту (Node tls иначе не строит chain).
+    if [ -n "$STEP_CA_INTERMEDIATE_PEM" ]; then
+        echo "$STEP_CA_INTERMEDIATE_PEM" >> "$CERT_DIR/agent.crt"
+        echo "  [OK] Bundled intermediate в agent.crt"
+    elif [ -f /etc/step-ca/certs/intermediate_ca.crt ]; then
+        cat /etc/step-ca/certs/intermediate_ca.crt >> "$CERT_DIR/agent.crt"
+    fi
 
     chmod 600 "$CERT_DIR"/*.crt "$CERT_DIR"/*.key
     echo "  [OK] Cert: $CERT_DIR/agent.crt (SAN: $AGENT_SAN)"
@@ -288,14 +354,13 @@ After=network.target
 Type=simple
 WorkingDirectory=${INSTALL_DIR}
 ExecStart=/usr/bin/node ${INSTALL_DIR}/dist/index.js
-ExecReload=/bin/kill -HUP \$MAINPID
-Restart=on-failure
+Restart=always
 RestartSec=5
 LimitNOFILE=65536
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/etc/node-agent /var/log/node-agent
+ReadWritePaths=/etc/node-agent /var/log/node-agent /opt/server-configs
 PrivateTmp=true
 
 [Install]
@@ -311,7 +376,7 @@ After=network.target
 Type=oneshot
 Environment=STEPPATH=/etc/node-agent/step
 ExecStart=/usr/local/bin/step ca renew --force ${CERT_DIR}/agent.crt ${CERT_DIR}/agent.key
-ExecStartPost=/bin/systemctl reload-or-restart node-agent.service
+ExecStartPost=/bin/systemctl restart node-agent.service
 EOF
 
 cat > /etc/systemd/system/node-agent-cert-renew.timer << EOF

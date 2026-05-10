@@ -63,3 +63,23 @@ export function useRotateBootstrapToken() {
       api.post<CreateServerResponse>(`/api/servers/${encodeURIComponent(name)}/rotate-token`),
   });
 }
+
+export interface SyncResponse {
+  server: string;
+  reachable: boolean;
+  data?: {
+    before_sha?: string | null;
+    after_sha?: string | null;
+    changed_files?: string[];
+    triggered_reloads?: Record<string, boolean>;
+    output?: string;
+  };
+  error?: string;
+}
+
+export function useSyncServerConfig() {
+  return useMutation({
+    mutationFn: (name: string) =>
+      api.post<SyncResponse>(`/api/servers/${encodeURIComponent(name)}/sync`),
+  });
+}

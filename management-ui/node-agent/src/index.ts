@@ -5,6 +5,7 @@ import type { TLSSocket, PeerCertificate } from 'node:tls';
 import { loadConfig } from './config.js';
 import { runAllChecks, runCheck, CHECKERS } from './checkers.js';
 import { audit, hashBody } from './audit.js';
+import { syncConfigRepo, listConfigFiles, RELOAD_WHITELIST, reloadService } from './config-sync.js';
 
 const VERSION = '0.1.0';
 const STARTED_AT = Date.now();
@@ -139,6 +140,37 @@ async function main() {
       mem_free_mb: Math.round(os.freemem() / 1024 / 1024),
       uptime_seconds: Math.floor(os.uptime()),
     };
+  });
+
+  // GET /config/list — листинг конфигов из server-configs репы
+  fastify.get('/config/list', async () => {
+    const files = listConfigFiles(cfg.config_repo_dir);
+    return { server: cfg.server_name, repo: cfg.config_repo_dir, files };
+  });
+
+  // POST /config/sync — git pull + автоматический reload Traefik/Authelia при
+  // изменениях в их dynamic-конфигах
+  fastify.post('/config/sync', async (req, reply) => {
+    try {
+      const result = syncConfigRepo(cfg.config_repo_dir);
+      return { server: cfg.server_name, ...result };
+    } catch (err) {
+      return reply.code(500).send({ error: (err as Error).message });
+    }
+  });
+
+  // POST /services/:name/reload — systemctl reload (whitelisted сервисы)
+  fastify.post<{ Params: { name: string } }>('/services/:name/reload', async (req, reply) => {
+    const { name } = req.params;
+    if (!RELOAD_WHITELIST.has(name)) {
+      return reply.code(403).send({ error: `reload запрещён для ${name} (whitelist: ${[...RELOAD_WHITELIST].join(',')})` });
+    }
+    try {
+      const ok = reloadService(name);
+      return { server: cfg.server_name, service: name, reloaded: ok };
+    } catch (err) {
+      return reply.code(500).send({ error: (err as Error).message });
+    }
   });
 
   // SIGHUP → graceful reload (для cert renewal)

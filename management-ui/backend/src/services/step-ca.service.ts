@@ -1,5 +1,5 @@
 import { execFileSync, execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync as fsReadFileSync } from 'node:fs';
 import { AppError } from '@management-ui/shared';
 
 // step-ca CLI обёртка для primary-сервера. Все вызовы локальные:
@@ -21,6 +21,19 @@ export function getRootFingerprint(): string {
   }
   const out = execFileSync(STEP_BIN, ['certificate', 'fingerprint', ROOT_CA], { encoding: 'utf-8' });
   return out.trim();
+}
+
+const INTERMEDIATE_CA = process.env.STEP_CA_INTERMEDIATE || '/etc/step-ca/certs/intermediate_ca.crt';
+
+/**
+ * Возвращает PEM-содержимое intermediate-сертификата для bundle-формирования
+ * на secondary-серверах (агент должен отдавать leaf + intermediate клиентам).
+ */
+export function getIntermediatePem(): string {
+  if (!existsSync(INTERMEDIATE_CA)) {
+    throw new AppError('intermediate_ca.crt недоступен', 500);
+  }
+  return fsReadFileSync(INTERMEDIATE_CA, 'utf-8');
 }
 
 export function getCaUrlExternal(): string {
@@ -78,9 +91,15 @@ export function revokeCertBySerial(serial: string, reason = 'unspecified'): void
 export function buildBootstrapCommand(serverName: string, agentSan: string, bootstrapToken: string, caUrlExternal: string, fingerprint: string): string {
   return [
     `# На новом сервере (${serverName}):`,
+    `# 1. Сохраните intermediate_pem из ответа API в файл:`,
+    `cat > /tmp/intermediate.crt << 'PEM_EOF'`,
+    `# (вставьте сюда intermediate_pem)`,
+    `PEM_EOF`,
+    ``,
     `curl -fsSL https://github.com/borisovai-hub/ai-sysops/raw/main/scripts/single-machine/install-node-agent.sh -o /tmp/install-node-agent.sh`,
     `chmod +x /tmp/install-node-agent.sh`,
     `STEP_CA_ROOT_FINGERPRINT='${fingerprint}' \\`,
+    `STEP_CA_INTERMEDIATE_PEM="$(cat /tmp/intermediate.crt)" \\`,
     `  /tmp/install-node-agent.sh \\`,
     `    --server-name ${serverName} \\`,
     `    --ca-url ${caUrlExternal} \\`,

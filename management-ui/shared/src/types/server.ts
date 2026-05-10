@@ -54,4 +54,5 @@ export interface CreateServerResponse {
   bootstrap_command: string;      // готовая команда для запуска install-node-agent.sh на secondary
   ca_url: string;
   ca_root_fingerprint: string;
+  intermediate_pem: string;       // intermediate cert для bundle (агент должен отдавать leaf+intermediate)
 }

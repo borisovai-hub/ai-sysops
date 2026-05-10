@@ -10,6 +10,7 @@ import {
   isStepCaAvailable,
   issueBootstrapToken,
   getRootFingerprint,
+  getIntermediatePem,
   getCaUrlExternal,
   buildBootstrapCommand,
 } from '../services/step-ca.service.js';
@@ -80,6 +81,7 @@ export async function serversRoutes(fastify: FastifyInstance) {
       bootstrap_command: buildBootstrapCommand(created.name, created.agent_san, bootstrapToken, caUrlExternal, fingerprint),
       ca_url: caUrlExternal,
       ca_root_fingerprint: fingerprint,
+      intermediate_pem: getIntermediatePem(),
     };
     return reply.code(201).send(response);
   });
@@ -115,6 +117,30 @@ export async function serversRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // POST /api/servers/:name/sync — git pull в config-репе на агенте
+  fastify.post<{ Params: { name: string } }>(
+    '/:name/sync',
+    { preHandler: [fastify.requireAuth] },
+    async (req) => {
+      const server = getServer(req.params.name);
+      const client = nodeAgentClient(server);
+      const r = await client.syncConfig();
+      return { server: server.name, ...r };
+    },
+  );
+
+  // POST /api/servers/:name/reload/:service
+  fastify.post<{ Params: { name: string; service: string } }>(
+    '/:name/reload/:service',
+    { preHandler: [fastify.requireAuth] },
+    async (req) => {
+      const server = getServer(req.params.name);
+      const client = nodeAgentClient(server);
+      const r = await client.reloadService(req.params.service);
+      return { server: server.name, service: req.params.service, ...r };
+    },
+  );
+
   // POST /api/servers/:name/rotate-token — выдать новый bootstrap-токен
   // (например, если сервер недоступен и нужно переустановить агент)
   fastify.post<{ Params: { name: string } }>(
@@ -128,12 +154,15 @@ export async function serversRoutes(fastify: FastifyInstance) {
       const token = issueBootstrapToken(server.agent_san, 60);
       const fingerprint = getRootFingerprint();
       const caUrlExternal = getCaUrlExternal();
-      return {
+      const response: CreateServerResponse = {
+        server,
         bootstrap_token: token,
         bootstrap_command: buildBootstrapCommand(server.name, server.agent_san, token, caUrlExternal, fingerprint),
         ca_url: caUrlExternal,
         ca_root_fingerprint: fingerprint,
+        intermediate_pem: getIntermediatePem(),
       };
+      return response;
     },
   );
 }

@@ -131,6 +131,28 @@ export class NodeAgentClient {
       return { reachable: false, error: extractError(err) };
     }
   }
+
+  async syncConfig(): Promise<{ reachable: boolean; data?: Record<string, unknown>; error?: string }> {
+    if (!this.http) return { reachable: false, error: 'admin client cert не настроен' };
+    try {
+      // Sync может быть медленным (git pull через сеть + reload Traefik)
+      const resp = await this.http.post<Record<string, unknown>>('/config/sync', {}, { timeout: 60_000 });
+      return { reachable: true, data: resp.data };
+    } catch (err) {
+      return { reachable: false, error: extractError(err) };
+    }
+  }
+
+  async reloadService(name: string): Promise<{ reachable: boolean; reloaded?: boolean; error?: string }> {
+    if (!this.http) return { reachable: false, error: 'admin client cert не настроен' };
+    try {
+      // systemctl reload может занять до 30с (Traefik делает restart fallback)
+      const resp = await this.http.post<{ reloaded: boolean }>(`/services/${encodeURIComponent(name)}/reload`, {}, { timeout: 30_000 });
+      return { reachable: true, reloaded: resp.data.reloaded };
+    } catch (err) {
+      return { reachable: false, error: extractError(err) };
+    }
+  }
 }
 
 function extractError(err: unknown): string {
