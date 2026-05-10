@@ -260,6 +260,21 @@ else
     echo "  [Пропуск] PKI уже инициализирован"
 fi
 
+# Группа step-ca-clients для доступа management-ui к provisioner-password
+# и root_ca.crt (нужно для issueBootstrapToken и getRootFingerprint).
+# Сам ключ root_ca_key и password (CA-pass) остаются 600 root:root.
+echo "  Настройка группы step-ca-clients для read-only доступа..."
+getent group step-ca-clients > /dev/null || groupadd -r step-ca-clients
+if id management-ui &>/dev/null; then
+    usermod -aG step-ca-clients management-ui
+fi
+chgrp step-ca-clients "$STEPPATH/certs" "$SECRETS_DIR" 2>/dev/null || true
+chmod 750 "$STEPPATH/certs" "$SECRETS_DIR"
+chgrp step-ca-clients "$STEPPATH/certs/root_ca.crt" "$STEPPATH/certs/intermediate_ca.crt" 2>/dev/null || true
+chmod 640 "$STEPPATH/certs/root_ca.crt" "$STEPPATH/certs/intermediate_ca.crt"
+chgrp step-ca-clients "$SECRETS_DIR/provisioner-password" 2>/dev/null || true
+chmod 640 "$SECRETS_DIR/provisioner-password"
+
 # ============================================================
 # [4/8] Кастомизация ca.json (lifetime, политика SAN)
 # ============================================================
@@ -442,6 +457,41 @@ provisioner_password_file=/etc/step-ca/secrets/provisioner-password
 #   step ca certificate <agent-san> agent.crt agent.key --token=<token>
 CRED_EOF
 chmod 600 "$CRED_DIR/step-ca"
+
+# ============================================================
+# Auto-issue admin client cert для management-ui (если установлен)
+# ============================================================
+if id management-ui &>/dev/null && [ -d /etc/management-ui ]; then
+    echo "  Выдача admin client cert для management-ui..."
+    ADMIN_CERT_DIR=/etc/management-ui/certs
+    mkdir -p "$ADMIN_CERT_DIR"
+
+    if [ ! -f "$ADMIN_CERT_DIR/admin.crt" ] || [ "$FORCE_MODE" = true ]; then
+        ADMIN_TOKEN=$(/usr/local/bin/step ca token \
+            "admin@${STEP_CA_NAME//borisovai-internal/contabo-sm-139}" \
+            --provisioner admin-bootstrap \
+            --provisioner-password-file "$SECRETS_DIR/provisioner-password" \
+            --ca-url "https://127.0.0.1:${STEP_CA_PORT}" \
+            --root "$STEPPATH/certs/root_ca.crt" \
+            --not-after 5m 2>/dev/null)
+        /usr/local/bin/step ca certificate \
+            "admin@contabo-sm-139" \
+            "$ADMIN_CERT_DIR/admin.crt" \
+            "$ADMIN_CERT_DIR/admin.key" \
+            --token "$ADMIN_TOKEN" \
+            --ca-url "https://127.0.0.1:${STEP_CA_PORT}" \
+            --root "$STEPPATH/certs/root_ca.crt" \
+            --force 2>&1 | tail -3
+        cat "$STEPPATH/certs/root_ca.crt" "$STEPPATH/certs/intermediate_ca.crt" > "$ADMIN_CERT_DIR/ca.crt"
+        chown -R management-ui:management-ui "$ADMIN_CERT_DIR"
+        chmod 750 "$ADMIN_CERT_DIR"
+        chmod 644 "$ADMIN_CERT_DIR"/*.crt
+        chmod 640 "$ADMIN_CERT_DIR"/*.key
+        echo "  [OK] admin client cert: ${ADMIN_CERT_DIR}/admin.crt (CN: admin@contabo-sm-139)"
+    else
+        echo "  [Пропуск] admin client cert уже существует"
+    fi
+fi
 
 echo ""
 echo "=== Установка step-ca завершена ==="

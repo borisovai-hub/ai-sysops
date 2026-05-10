@@ -164,6 +164,7 @@ export const auditLog = sqliteTable('audit_log', {
 // --- Health Checks (monitoring) ---
 export const healthChecks = sqliteTable('health_checks', {
   id: integer('id').primaryKey({ autoIncrement: true }),
+  serverName: text('server_name').notNull().default('local'),
   serviceName: text('service_name').notNull(),
   status: text('status').notNull(), // up | down | degraded
   responseTimeMs: integer('response_time_ms'),

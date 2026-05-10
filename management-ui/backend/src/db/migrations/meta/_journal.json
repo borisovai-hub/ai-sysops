@@ -36,6 +36,13 @@
       "when": 1776614400000,
       "tag": "0005_auth_token_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1778691600000,
+      "tag": "0006_health_checks_server_name",
+      "breakpoints": true
     }
   ]
 }

@@ -18,6 +18,7 @@ interface SidebarItem {
 const sidebarMap: Record<string, SidebarItem[]> = {
   infra: [
     { label: 'Сервисы', path: '/', icon: Server },
+    { label: 'Серверы', path: '/servers', icon: Server },
     { label: 'Мониторинг', path: '/monitoring', icon: Activity },
     { label: 'DNS', path: '/dns', icon: Globe },
     { label: 'RU Proxy', path: '/ru-proxy', icon: Shield },

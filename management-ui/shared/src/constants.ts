@@ -15,6 +15,8 @@ export const PATHS = {
   TEMPLATES_DIR: '/opt/management-ui/templates',
   REPO_DIR: '/opt/borisovai-admin',
   CONFIG_REPO_DIR: '/opt/server-configs',
+  SERVERS_FILE: '/etc/management-ui/servers.json',
+  ADMIN_CERTS_DIR: '/etc/management-ui/certs',
 } as const;
 
 // Default port

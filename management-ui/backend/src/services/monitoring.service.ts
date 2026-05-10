@@ -1,19 +1,27 @@
 import { EventEmitter } from 'node:events';
-import axios from 'axios';
 import { eq, and, desc, sql, count, gt, avg } from 'drizzle-orm';
-import type { MonitoringConfig, CheckResult, ServiceUptimeStats } from '@management-ui/shared';
+import type { MonitoringConfig, ServiceUptimeStats } from '@management-ui/shared';
 import { DEFAULT_MONITORING_CONFIG } from '@management-ui/shared';
 import { getDb } from '../db/index.js';
 import * as schema from '../db/schema.js';
-import { execCommandSafe } from '../lib/exec.js';
-import { loadAppConfig, loadInstallConfig } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 import { createAlert, resolveAlertsBySource, cleanupResolvedAlerts } from './alert.service.js';
 import { cleanupOldEvents } from './security.service.js';
-
-// --- Event emitter ---
+import { listServers, getEnabledServers } from './servers.service.js';
+import { nodeAgentClient } from '../lib/node-agent-client.js';
+import type { ServerRecord } from '@management-ui/shared';
 
 export const monitoringEmitter = new EventEmitter();
+
+type HealthCheckSelect = typeof schema.healthChecks.$inferSelect;
+
+export interface ServiceCheckResult {
+  status: 'up' | 'down' | 'degraded';
+  responseTimeMs: number;
+  statusCode?: number;
+  error?: string;
+  details?: Record<string, unknown>;
+}
 
 // --- Config persistence ---
 
@@ -41,166 +49,21 @@ export async function saveMonitoringConfig(config: MonitoringConfig): Promise<vo
     });
 }
 
-// --- Built-in checkers ---
-
-async function checkTraefik(): Promise<CheckResult> {
-  const start = Date.now();
-  try {
-    const resp = await axios.get('http://localhost:8080/api/rawdata', { timeout: 3000 });
-    return { status: 'up', responseTimeMs: Date.now() - start, statusCode: resp.status };
-  } catch (err: any) {
-    return { status: 'down', responseTimeMs: Date.now() - start, error: err.message };
-  }
-}
-
-async function checkAuthelia(): Promise<CheckResult> {
-  const start = Date.now();
-  try {
-    const resp = await axios.get('http://localhost:9091/api/health', { timeout: 3000 });
-    return { status: 'up', responseTimeMs: Date.now() - start, statusCode: resp.status };
-  } catch (err: any) {
-    return { status: 'down', responseTimeMs: Date.now() - start, error: err.message };
-  }
-}
-
-async function checkFrps(): Promise<CheckResult> {
-  const start = Date.now();
-  try {
-    const { frpsDashboardRequest } = await import('../lib/frp-api.js');
-    await frpsDashboardRequest('/api/serverinfo');
-    return { status: 'up', responseTimeMs: Date.now() - start, statusCode: 200 };
-  } catch (err: any) {
-    return { status: 'down', responseTimeMs: Date.now() - start, error: err.message };
-  }
-}
-
-async function checkUmami(): Promise<CheckResult> {
-  const start = Date.now();
-  const dockerResult = execCommandSafe('docker ps --filter name=umami --format "{{.Names}}"');
-  if (!dockerResult.success || !dockerResult.stdout.includes('umami')) {
-    return { status: 'down', responseTimeMs: Date.now() - start, error: 'Container not running' };
-  }
-  try {
-    const resp = await axios.get('http://localhost:3001/api/heartbeat', { timeout: 3000 });
-    return { status: 'up', responseTimeMs: Date.now() - start, statusCode: resp.status };
-  } catch (err: any) {
-    return { status: 'degraded', responseTimeMs: Date.now() - start, error: err.message, details: { containerRunning: true } };
-  }
-}
-
-async function checkDnsApi(): Promise<CheckResult> {
-  const start = Date.now();
-  try {
-    const resp = await axios.get('http://localhost:5353/api/health', { timeout: 3000 });
-    return { status: 'up', responseTimeMs: Date.now() - start, statusCode: resp.status };
-  } catch (err: any) {
-    return { status: 'down', responseTimeMs: Date.now() - start, error: err.message };
-  }
-}
-
-async function checkGitlab(): Promise<CheckResult> {
-  const start = Date.now();
-  const config = loadAppConfig();
-  if (!config.gitlab_url) {
-    return { status: 'down', responseTimeMs: 0, error: 'gitlab_url not configured' };
-  }
-  try {
-    const resp = await axios.get(`${config.gitlab_url}/api/v4/version`, {
-      timeout: 5000,
-      headers: config.gitlab_token ? { 'PRIVATE-TOKEN': config.gitlab_token } : undefined,
-    });
-    return { status: 'up', responseTimeMs: Date.now() - start, statusCode: resp.status, details: { version: resp.data?.version } };
-  } catch (err: any) {
-    return { status: 'down', responseTimeMs: Date.now() - start, error: err.message };
-  }
-}
-
-async function checkStrapi(): Promise<CheckResult> {
-  const start = Date.now();
-  const config = loadAppConfig();
-  if (!config.strapi_url) {
-    return { status: 'down', responseTimeMs: 0, error: 'strapi_url not configured' };
-  }
-  try {
-    const resp = await axios.get(`${config.strapi_url}/_health`, { timeout: 5000 });
-    return { status: 'up', responseTimeMs: Date.now() - start, statusCode: resp.status };
-  } catch (err: any) {
-    return { status: 'down', responseTimeMs: Date.now() - start, error: err.message };
-  }
-}
-
-async function checkRuProxy(): Promise<CheckResult> {
-  const start = Date.now();
-  const installConfig = loadInstallConfig();
-  const apiUrl = installConfig.ru_proxy_api_url;
-  if (!apiUrl) {
-    return { status: 'down', responseTimeMs: 0, error: 'ru_proxy_api_url not configured' };
-  }
-  try {
-    const resp = await axios.get(`${apiUrl}/api/health`, {
-      timeout: 10000,
-      headers: installConfig.ru_proxy_api_token
-        ? { Authorization: `Bearer ${installConfig.ru_proxy_api_token}` }
-        : undefined,
-    });
-    return { status: 'up', responseTimeMs: Date.now() - start, statusCode: resp.status };
-  } catch (err: any) {
-    return { status: 'down', responseTimeMs: Date.now() - start, error: err.message };
-  }
-}
-
-async function checkVikunja(): Promise<CheckResult> {
-  const start = Date.now();
-  const dockerResult = execCommandSafe('docker ps --filter name=vikunja --format "{{.Names}}"');
-  if (!dockerResult.success || !dockerResult.stdout.includes('vikunja')) {
-    return { status: 'down', responseTimeMs: Date.now() - start, error: 'Container not running' };
-  }
-  try {
-    const resp = await axios.get('http://localhost:3456/api/v1/info', { timeout: 3000 });
-    return { status: 'up', responseTimeMs: Date.now() - start, statusCode: resp.status };
-  } catch (err: any) {
-    return { status: 'degraded', responseTimeMs: Date.now() - start, error: err.message, details: { containerRunning: true } };
-  }
-}
-
-async function checkManagementUi(): Promise<CheckResult> {
-  return { status: 'up', responseTimeMs: 0, details: { self: true } };
-}
-
-// --- Monitoring Service ---
-
-type HealthCheckSelect = typeof schema.healthChecks.$inferSelect;
+// --- MonitoringService ---
 
 class MonitoringService {
   private static instance: MonitoringService;
-  private checkers = new Map<string, () => Promise<CheckResult>>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private retentionTimer: ReturnType<typeof setInterval> | null = null;
   private config: MonitoringConfig = { ...DEFAULT_MONITORING_CONFIG };
+  // Anti-flapping state ключ — `${serverName}:${serviceName}`
   private lastStatus = new Map<string, { status: string; consecutiveFailures: number }>();
 
-  private constructor() {
-    this.registerChecker('traefik', checkTraefik);
-    this.registerChecker('authelia', checkAuthelia);
-    this.registerChecker('frps', checkFrps);
-    this.registerChecker('umami', checkUmami);
-    this.registerChecker('dns-api', checkDnsApi);
-    this.registerChecker('gitlab', checkGitlab);
-    this.registerChecker('strapi', checkStrapi);
-    this.registerChecker('ru-proxy', checkRuProxy);
-    this.registerChecker('vikunja', checkVikunja);
-    this.registerChecker('management-ui', checkManagementUi);
-  }
+  private constructor() {}
 
   static getInstance(): MonitoringService {
-    if (!MonitoringService.instance) {
-      MonitoringService.instance = new MonitoringService();
-    }
+    if (!MonitoringService.instance) MonitoringService.instance = new MonitoringService();
     return MonitoringService.instance;
-  }
-
-  registerChecker(name: string, checker: () => Promise<CheckResult>): void {
-    this.checkers.set(name, checker);
   }
 
   async start(): Promise<void> {
@@ -208,74 +71,105 @@ class MonitoringService {
     this.config = await loadMonitoringConfig();
     if (!this.config.enabled || !this.config.healthChecks.enabled) return;
     const interval = this.config.healthChecks.intervalMs || 60000;
-    logger.info(`Мониторинг запущен, интервал ${interval}ms`);
+    logger.info(`Мониторинг запущен (multi-server fan-out), интервал ${interval}ms`);
     this.timer = setInterval(() => void this.runAllChecks(), interval);
-    // Первая проверка через 5 секунд после старта
     setTimeout(() => void this.runAllChecks(), 5000);
-
-    // Data retention — раз в сутки
     this.retentionTimer = setInterval(() => void this.runRetention(), 86400000);
-    // Первый запуск retention через 1 минуту
     setTimeout(() => void this.runRetention(), 60000);
   }
 
   stop(): void {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
-    if (this.retentionTimer) {
-      clearInterval(this.retentionTimer);
-      this.retentionTimer = null;
-    }
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    if (this.retentionTimer) { clearInterval(this.retentionTimer); this.retentionTimer = null; }
     logger.info('Мониторинг остановлен');
   }
 
   async reconfigure(config: MonitoringConfig): Promise<void> {
     this.config = config;
     this.stop();
-    if (config.enabled && config.healthChecks.enabled) {
-      await this.start();
-    }
+    if (config.enabled && config.healthChecks.enabled) await this.start();
   }
 
+  /**
+   * Fan-out: для каждого enabled-сервера запросить /services/status у его node-agent'а.
+   */
   async runAllChecks(): Promise<void> {
+    const servers = getEnabledServers();
+    if (servers.length === 0) {
+      logger.warn('Мониторинг: реестр серверов пуст, пропускаем проверки');
+      return;
+    }
+
+    const results = await Promise.allSettled(servers.map((s) => this.runChecksForServer(s)));
+    for (const r of results) {
+      if (r.status === 'rejected') logger.error('runChecksForServer rejected:', r.reason);
+    }
+  }
+
+  async runChecksForServer(server: ServerRecord): Promise<void> {
+    const client = nodeAgentClient(server);
     const allowedServices = this.config.healthChecks.services;
-    const entries = [...this.checkers.entries()].filter(
-      ([name]) => allowedServices.length === 0 || allowedServices.includes(name),
-    );
+    const resp = await client.getServicesStatus();
 
-    const results = await Promise.allSettled(
-      entries.map(async ([name, checker]) => {
-        const result = await checker();
-        return { name, result };
-      }),
-    );
-
-    for (const settled of results) {
-      if (settled.status === 'rejected') continue;
-      const { name, result } = settled.value;
-      await this.processResult(name, result);
+    if (!resp.reachable) {
+      // Записываем синтетический "agent-unreachable" статус
+      await this.processResult(server.name, 'agent', {
+        status: 'down',
+        responseTimeMs: 0,
+        error: resp.error || 'agent unreachable',
+      });
+      return;
     }
+
+    const services = resp.services || {};
+    for (const [name, result] of Object.entries(services)) {
+      if (allowedServices.length > 0 && !allowedServices.includes(name)) continue;
+      await this.processResult(server.name, name, result as ServiceCheckResult);
+    }
+    // Дополнительно записываем "agent" как 'up' — индикатор связности с сервером
+    await this.processResult(server.name, 'agent', { status: 'up', responseTimeMs: 0 });
   }
 
-  async runSingleCheck(name: string): Promise<CheckResult> {
-    const checker = this.checkers.get(name);
-    if (!checker) {
-      return { status: 'down', responseTimeMs: 0, error: `Checker "${name}" not found` };
+  /**
+   * Прогон одного сервиса по имени. Ищем сервер в реестре, который его проверяет.
+   * Параметр serverName опционален: если не указан, используется первый enabled.
+   */
+  async runSingleCheck(serviceName: string, serverName?: string): Promise<ServiceCheckResult> {
+    const server = serverName
+      ? listServers().find((s) => s.name === serverName)
+      : getEnabledServers()[0];
+    if (!server) return { status: 'down', responseTimeMs: 0, error: `server not found: ${serverName || 'any'}` };
+
+    const client = nodeAgentClient(server);
+    if (serviceName === 'agent') {
+      const h = await client.health();
+      const result: ServiceCheckResult = h.reachable
+        ? { status: 'up', responseTimeMs: 0 }
+        : { status: 'down', responseTimeMs: 0, error: h.error };
+      await this.processResult(server.name, 'agent', result);
+      return result;
     }
-    const result = await checker();
-    await this.processResult(name, result);
-    return result;
+
+    const resp = await client.getServicesStatus();
+    if (!resp.reachable) {
+      const result: ServiceCheckResult = { status: 'down', responseTimeMs: 0, error: resp.error || 'agent unreachable' };
+      await this.processResult(server.name, serviceName, result);
+      return result;
+    }
+    const r = (resp.services?.[serviceName] as ServiceCheckResult | undefined) ?? {
+      status: 'down', responseTimeMs: 0, error: 'service not in agent response',
+    };
+    await this.processResult(server.name, serviceName, r);
+    return r;
   }
 
-  private async processResult(name: string, result: CheckResult): Promise<void> {
+  private async processResult(serverName: string, serviceName: string, result: ServiceCheckResult): Promise<void> {
     const db = getDb();
     const now = new Date().toISOString();
 
-    // Write to DB
     await db.insert(schema.healthChecks).values({
-      serviceName: name,
+      serverName,
+      serviceName,
       status: result.status,
       responseTimeMs: result.responseTimeMs,
       statusCode: result.statusCode ?? null,
@@ -284,101 +178,88 @@ class MonitoringService {
       checkedAt: now,
     });
 
-    // Anti-flapping
-    const prev = this.lastStatus.get(name);
+    const key = `${serverName}:${serviceName}`;
+    const prev = this.lastStatus.get(key);
     const isDown = result.status === 'down';
     const wasDown = prev?.status === 'down';
 
     if (isDown) {
       const failures = (prev?.consecutiveFailures ?? 0) + 1;
-      this.lastStatus.set(name, { status: 'down', consecutiveFailures: failures });
+      this.lastStatus.set(key, { status: 'down', consecutiveFailures: failures });
 
-      // Alert after 2 consecutive failures
       if (failures >= 2) {
         const alert = await createAlert({
           severity: 'critical',
           category: 'health',
-          source: `health:${name}`,
-          title: `${name} недоступен`,
-          message: result.error || `Сервис ${name} не отвечает (${failures} подряд)`,
+          source: `health:${serverName}:${serviceName}`,
+          title: `${serverName}/${serviceName} недоступен`,
+          message: result.error || `Сервис ${serviceName} на ${serverName} не отвечает (${failures} подряд)`,
         });
         monitoringEmitter.emit('alert', alert);
       }
     } else {
-      this.lastStatus.set(name, { status: result.status, consecutiveFailures: 0 });
-
-      // Auto-resolve alerts when service recovers
+      this.lastStatus.set(key, { status: result.status, consecutiveFailures: 0 });
       if (wasDown) {
-        await resolveAlertsBySource(`health:${name}`);
-        monitoringEmitter.emit('status_change', { service: name, from: 'down', to: result.status });
+        await resolveAlertsBySource(`health:${serverName}:${serviceName}`);
+        monitoringEmitter.emit('status_change', { server: serverName, service: serviceName, from: 'down', to: result.status });
       }
     }
 
-    // Emit status change for any transition
     if (prev && prev.status !== result.status) {
-      monitoringEmitter.emit('status_change', { service: name, from: prev.status, to: result.status });
+      monitoringEmitter.emit('status_change', { server: serverName, service: serviceName, from: prev.status, to: result.status });
     }
   }
 
-  async getLatestStatuses(): Promise<Record<string, HealthCheckSelect>> {
+  /**
+   * Последний статус каждой пары (server, service).
+   */
+  async getLatestStatuses(): Promise<Record<string, Record<string, HealthCheckSelect>>> {
     const db = getDb();
-    const services = [...this.checkers.keys()];
-    const result: Record<string, HealthCheckSelect> = {};
+    // Группируем по (server, service), берём latest
+    const rows = await db.select().from(schema.healthChecks)
+      .orderBy(desc(schema.healthChecks.checkedAt));
 
-    for (const name of services) {
-      const [row] = await db.select().from(schema.healthChecks)
-        .where(eq(schema.healthChecks.serviceName, name))
-        .orderBy(desc(schema.healthChecks.checkedAt))
-        .limit(1);
-      if (row) result[name] = row;
+    const result: Record<string, Record<string, HealthCheckSelect>> = {};
+    for (const row of rows) {
+      result[row.serverName] = result[row.serverName] || {};
+      if (!result[row.serverName][row.serviceName]) {
+        result[row.serverName][row.serviceName] = row;
+      }
     }
     return result;
   }
 
-  async getServiceHistory(name: string, hours: number): Promise<HealthCheckSelect[]> {
+  async getServiceHistory(serverName: string, serviceName: string, hours: number): Promise<HealthCheckSelect[]> {
     const db = getDb();
     const since = new Date(Date.now() - hours * 3600000).toISOString();
     return db.select().from(schema.healthChecks)
       .where(and(
-        eq(schema.healthChecks.serviceName, name),
+        eq(schema.healthChecks.serverName, serverName),
+        eq(schema.healthChecks.serviceName, serviceName),
         gt(schema.healthChecks.checkedAt, since),
       ))
       .orderBy(desc(schema.healthChecks.checkedAt));
   }
 
-  async getUptimeStats(name: string, days: number): Promise<ServiceUptimeStats> {
+  async getUptimeStats(serverName: string, serviceName: string, days: number): Promise<ServiceUptimeStats> {
     const db = getDb();
     const since = new Date(Date.now() - days * 86400000).toISOString();
+    const baseFilter = and(
+      eq(schema.healthChecks.serverName, serverName),
+      eq(schema.healthChecks.serviceName, serviceName),
+      gt(schema.healthChecks.checkedAt, since),
+    );
 
-    const [totalRow] = await db.select({ total: count() }).from(schema.healthChecks)
-      .where(and(
-        eq(schema.healthChecks.serviceName, name),
-        gt(schema.healthChecks.checkedAt, since),
-      ));
-
+    const [totalRow] = await db.select({ total: count() }).from(schema.healthChecks).where(baseFilter);
     const [upRow] = await db.select({ total: count() }).from(schema.healthChecks)
-      .where(and(
-        eq(schema.healthChecks.serviceName, name),
-        eq(schema.healthChecks.status, 'up'),
-        gt(schema.healthChecks.checkedAt, since),
-      ));
-
-    const [avgRow] = await db.select({ avgMs: avg(schema.healthChecks.responseTimeMs) }).from(schema.healthChecks)
-      .where(and(
-        eq(schema.healthChecks.serviceName, name),
-        gt(schema.healthChecks.checkedAt, since),
-      ));
-
+      .where(and(baseFilter, eq(schema.healthChecks.status, 'up')));
+    const [avgRow] = await db.select({ avgMs: avg(schema.healthChecks.responseTimeMs) }).from(schema.healthChecks).where(baseFilter);
     const [incRow] = await db.select({ total: count() }).from(schema.healthChecks)
-      .where(and(
-        eq(schema.healthChecks.serviceName, name),
-        eq(schema.healthChecks.status, 'down'),
-        gt(schema.healthChecks.checkedAt, since),
-      ));
-
+      .where(and(baseFilter, eq(schema.healthChecks.status, 'down')));
     const [lastDownRow] = await db.select({ checkedAt: schema.healthChecks.checkedAt }).from(schema.healthChecks)
       .where(and(
-        eq(schema.healthChecks.serviceName, name),
+        eq(schema.healthChecks.serverName, serverName),
+        eq(schema.healthChecks.serviceName, serviceName),
         eq(schema.healthChecks.status, 'down'),
       ))
       .orderBy(desc(schema.healthChecks.checkedAt))
@@ -388,7 +269,7 @@ class MonitoringService {
     const upCount = upRow?.total ?? 0;
 
     return {
-      serviceName: name,
+      serviceName: `${serverName}/${serviceName}`,
       uptimePercent: totalCount > 0 ? Math.round((upCount / totalCount) * 10000) / 100 : 100,
       avgResponseMs: Math.round(Number(avgRow?.avgMs) || 0),
       incidents: incRow?.total ?? 0,
@@ -396,9 +277,18 @@ class MonitoringService {
     };
   }
 
+  /**
+   * Uptime для всех (server, service) за period.
+   */
   async getAllUptimeStats(days: number): Promise<ServiceUptimeStats[]> {
-    const names = [...this.checkers.keys()];
-    return Promise.all(names.map(name => this.getUptimeStats(name, days)));
+    const latest = await this.getLatestStatuses();
+    const out: ServiceUptimeStats[] = [];
+    for (const [server, services] of Object.entries(latest)) {
+      for (const service of Object.keys(services)) {
+        out.push(await this.getUptimeStats(server, service, days));
+      }
+    }
+    return out;
   }
 
   async getOverallUptime(days: number): Promise<number> {
@@ -425,17 +315,13 @@ class MonitoringService {
   async cleanupOldChecks(days: number): Promise<number> {
     const db = getDb();
     const cutoff = new Date(Date.now() - days * 86400000).toISOString();
-
-    // Count before delete (libsql drizzle doesn't expose changes count directly)
     const [before] = await db.select({ total: count() }).from(schema.healthChecks)
       .where(sql`${schema.healthChecks.checkedAt} < ${cutoff}`);
     const toDelete = before?.total ?? 0;
-
     if (toDelete > 0) {
       await db.delete(schema.healthChecks)
         .where(sql`${schema.healthChecks.checkedAt} < ${cutoff}`);
     }
-
     return toDelete;
   }
 }

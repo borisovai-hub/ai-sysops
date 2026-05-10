@@ -147,8 +147,9 @@ export async function executeTool(name: string, args: Record<string, unknown>): 
       case 'monitoring_history': {
         const svcName = String(args.serviceName ?? '');
         if (!svcName) return { output: 'serviceName обязателен', success: false };
+        const serverName = String(args.serverName ?? 'contabo-sm-139');
         const hours = Number(args.hours) || 24;
-        const history = await monitoringService.getServiceHistory(svcName, hours);
+        const history = await monitoringService.getServiceHistory(serverName, svcName, hours);
         return { output: JSON.stringify(history, null, 2), success: true };
       }
 

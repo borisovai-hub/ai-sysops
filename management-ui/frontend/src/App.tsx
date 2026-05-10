@@ -20,6 +20,7 @@ import { PublishPage } from './pages/PublishPage';
 import { PublishRunsPage } from './pages/PublishRunsPage';
 import { ReleasesPage } from './pages/ReleasesPage';
 import { LogsPage } from './pages/LogsPage';
+import { ServersPage } from './pages/ServersPage';
 
 export function App() {
   return (
@@ -28,6 +29,7 @@ export function App() {
       <Route element={<AppLayout />}>
         <Route index element={<ServicesPage />} />
         <Route path="monitoring" element={<MonitoringPage />} />
+        <Route path="servers" element={<ServersPage />} />
         <Route path="dns" element={<DnsPage />} />
         <Route path="ru-proxy" element={<RuProxyPage />} />
         <Route path="projects" element={<ProjectsPage />} />

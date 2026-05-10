@@ -15,6 +15,7 @@ export type * from './types/agent.js';
 export type * from './types/monitoring.js';
 export type * from './types/tasks.js';
 export type * from './types/casdoor.js';
+export type * from './types/server.js';
 export { DEFAULT_MONITORING_CONFIG } from './types/monitoring.js';
 
 // Validation schemas

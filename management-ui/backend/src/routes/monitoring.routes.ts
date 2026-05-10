@@ -23,27 +23,28 @@ export async function monitoringRoutes(fastify: FastifyInstance) {
     return { success: true, config: updated };
   });
 
-  // GET /status
+  // GET /status — multi-server fan-out
+  // Response: { enabled, servers: { [name]: { services: {svc: status} } }, activeAlerts, overallUptime }
   fastify.get('/status', { preHandler: [fastify.requireAuth] }, async () => {
     const config = await loadMonitoringConfig();
     if (!config.enabled) {
-      return { enabled: false, services: {}, activeAlerts: 0, overallUptime: 0 };
+      return { enabled: false, servers: {}, activeAlerts: 0, overallUptime: 0 };
     }
-    const services = await monitoringService.getLatestStatuses();
+    const grouped = await monitoringService.getLatestStatuses();
     const alertStats = await alertService.getAlertStats();
     return {
       enabled: true,
-      services,
+      servers: grouped,
       activeAlerts: alertStats.active,
       overallUptime: await monitoringService.getOverallUptime(1),
     };
   });
 
-  // GET /status/:name
-  fastify.get('/status/:name', { preHandler: [fastify.requireAuth] }, async (req) => {
-    const { name } = req.params as { name: string };
-    const history = await monitoringService.getServiceHistory(name, 24);
-    const stats = await monitoringService.getUptimeStats(name, 7);
+  // GET /status/:server/:service — история и uptime по конкретному сервису на сервере
+  fastify.get('/status/:server/:service', { preHandler: [fastify.requireAuth] }, async (req) => {
+    const { server, service } = req.params as { server: string; service: string };
+    const history = await monitoringService.getServiceHistory(server, service, 24);
+    const stats = await monitoringService.getUptimeStats(server, service, 7);
     return { history, stats };
   });
 
@@ -60,10 +61,10 @@ export async function monitoringRoutes(fastify: FastifyInstance) {
     return { success: true };
   });
 
-  // POST /check/:name
-  fastify.post('/check/:name', { preHandler: [fastify.requireAuth] }, async (req) => {
-    const { name } = req.params as { name: string };
-    const result = await monitoringService.runSingleCheck(name);
+  // POST /check/:server/:service — прогон одного чекера на конкретном сервере
+  fastify.post('/check/:server/:service', { preHandler: [fastify.requireAuth] }, async (req) => {
+    const { server, service } = req.params as { server: string; service: string };
+    const result = await monitoringService.runSingleCheck(service, server);
     return { success: true, result };
   });
 
@@ -113,7 +114,7 @@ export async function monitoringRoutes(fastify: FastifyInstance) {
 
     // Initial status
     const statuses = await monitoringService.getLatestStatuses();
-    send({ type: 'status_update', services: statuses });
+    send({ type: 'status_update', servers: statuses });
 
     // Subscribe
     const onStatusChange = (event: unknown) => send({ type: 'status_change', ...(event as Record<string, unknown>) });

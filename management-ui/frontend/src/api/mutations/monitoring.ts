@@ -21,7 +21,8 @@ export function useRunAllChecks() {
 export function useRunCheck() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => api.post(`/api/monitoring/check/${encodeURIComponent(name)}`),
+    mutationFn: ({ server, service }: { server: string; service: string }) =>
+      api.post(`/api/monitoring/check/${encodeURIComponent(server)}/${encodeURIComponent(service)}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['monitoring', 'status'] }),
   });
 }

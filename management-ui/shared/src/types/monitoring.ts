@@ -82,9 +82,10 @@ export interface SecurityEventRow {
   createdAt: string;
 }
 
+// Multi-server monitoring response (Phase 3)
 export interface MonitoringStatus {
   enabled: boolean;
-  services: Record<string, HealthCheckRow>;
+  servers: Record<string, Record<string, HealthCheckRow>>;
   activeAlerts: number;
   overallUptime: number;
 }
