@@ -50,6 +50,25 @@ export async function createToken(name: string): Promise<CreateTokenResponse> {
   return { id, name, token, createdAt: now };
 }
 
+/**
+ * Регистрирует одноразовый install-токен в auth_tokens с заданным scope.
+ * Используется для bootstrap нового сервера: токен живёт ~1ч, потом
+ * можно удалить через cleanup или deleteToken после первого использования.
+ */
+export async function createInstallToken(serverName: string, token: string): Promise<void> {
+  const db = getDb();
+  const id = generateId();
+  const now = new Date().toISOString();
+  await db.insert(authTokens).values({
+    id,
+    name: `install-${serverName}-${id}`,
+    tokenHash: hashToken(token),
+    tokenPrefix: token.substring(0, 8),
+    createdAt: now,
+    scopes: JSON.stringify([`install:${serverName}`]),
+  });
+}
+
 export async function deleteToken(id: string): Promise<boolean> {
   const db = getDb();
   // Check existence first (libsql doesn't return changes count via drizzle)

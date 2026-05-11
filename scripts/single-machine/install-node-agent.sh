@@ -37,6 +37,11 @@ CA_URL=""
 LISTEN=""
 ALLOWED_SAN="admin@contabo-sm-139"
 NODE_AGENT_PORT=7180
+FRPS_SERVER=""
+FRPS_CONTROL_PORT=""
+FRPS_TOKEN=""
+FRPS_REMOTE_PORT=""
+FRP_VERSION="0.66.0"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -47,6 +52,10 @@ while [[ $# -gt 0 ]]; do
         --ca-url) CA_URL="$2"; shift 2 ;;
         --listen) LISTEN="$2"; shift 2 ;;
         --allowed-client-san) ALLOWED_SAN="$2"; shift 2 ;;
+        --frps-server) FRPS_SERVER="$2"; shift 2 ;;
+        --frps-control-port) FRPS_CONTROL_PORT="$2"; shift 2 ;;
+        --frps-token) FRPS_TOKEN="$2"; shift 2 ;;
+        --frps-remote-port) FRPS_REMOTE_PORT="$2"; shift 2 ;;
         *) echo "Неизвестный аргумент: $1"; exit 1 ;;
     esac
 done
@@ -60,6 +69,13 @@ if [ -z "$BOOTSTRAP_TOKEN" ] && [ "$LOCAL_BOOTSTRAP" != true ] && [ ! -f /etc/no
     echo "Ошибка: укажите --bootstrap-token <JWK> или --local-bootstrap"
     echo "        (или запустите без аргументов после первичной установки)"
     exit 1
+fi
+
+# Если переданы frps-* параметры, ставим frpc туннель для node-agent
+SETUP_FRPC=false
+if [ -n "$FRPS_SERVER" ] && [ -n "$FRPS_TOKEN" ] && [ -n "$FRPS_REMOTE_PORT" ]; then
+    SETUP_FRPC=true
+    [ -z "$FRPS_CONTROL_PORT" ] && FRPS_CONTROL_PORT=17420
 fi
 
 # Auto-detect server-name
@@ -106,9 +122,9 @@ echo "  Allowed client:  ${ALLOWED_SAN}"
 echo ""
 
 # ============================================================
-# [1/7] Node.js 20+
+# [1/8] Node.js 20+
 # ============================================================
-echo "[1/7] Проверка Node.js..."
+echo "[1/8] Проверка Node.js..."
 NODE_OK=false
 if command -v node &>/dev/null; then
     NODE_VER=$(node -v | sed 's/v//' | cut -d. -f1)
@@ -140,9 +156,9 @@ if ! command -v step &>/dev/null; then
 fi
 
 # ============================================================
-# [2/7] Копирование исходников + сборка
+# [2/8] Копирование исходников + сборка
 # ============================================================
-echo "[2/7] Копирование исходников..."
+echo "[2/8] Копирование исходников..."
 
 INSTALL_DIR="/opt/node-agent"
 mkdir -p "$INSTALL_DIR"
@@ -170,8 +186,21 @@ if [ -d "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/package.json" ]; then
 elif [ -d /opt/borisovai-admin/management-ui/node-agent ]; then
     copy_source "/opt/borisovai-admin/management-ui/node-agent" "$INSTALL_DIR"
 else
-    echo "  [ОШИБКА] Не найден source: ${SOURCE_DIR} или /opt/borisovai-admin/management-ui/node-agent/"
-    exit 1
+    # Свежий сервер — клонируем публичный mirror borisovai-admin
+    echo "  Клонируем borisovai-admin из GitHub (public mirror)..."
+    if ! command -v git &>/dev/null; then
+        apt-get install -y git 2>&1 | tail -2
+    fi
+    REPO="${BORISOVAI_ADMIN_REPO:-https://github.com/borisovai-hub/ai-sysops.git}"
+    if [ ! -d /opt/borisovai-admin/.git ]; then
+        git clone --depth=1 "$REPO" /opt/borisovai-admin 2>&1 | tail -3
+    fi
+    if [ -d /opt/borisovai-admin/management-ui/node-agent ]; then
+        copy_source "/opt/borisovai-admin/management-ui/node-agent" "$INSTALL_DIR"
+    else
+        echo "  [ОШИБКА] clone не дал management-ui/node-agent/"
+        exit 1
+    fi
 fi
 
 cd "$INSTALL_DIR"
@@ -194,9 +223,9 @@ mkdir -p /var/log/node-agent
 chmod 755 /var/log/node-agent
 
 # ============================================================
-# [3/7] Bootstrap cert от step-ca
+# [3/8] Bootstrap cert от step-ca
 # ============================================================
-echo "[3/7] Bootstrap cert от step-ca..."
+echo "[3/8] Bootstrap cert от step-ca..."
 
 CERT_DIR="/etc/node-agent/certs"
 mkdir -p "$CERT_DIR"
@@ -285,9 +314,9 @@ else
 fi
 
 # ============================================================
-# [4/7] Конфиг агента
+# [4/8] Конфиг агента
 # ============================================================
-echo "[4/7] Конфиг /etc/node-agent/config.json..."
+echo "[4/8] Конфиг /etc/node-agent/config.json..."
 
 CONFIG_FILE="/etc/node-agent/config.json"
 
@@ -327,9 +356,9 @@ else
 fi
 
 # ============================================================
-# [5/7] Systemd unit + cert-renew timer
+# [5/8] Systemd unit + cert-renew timer
 # ============================================================
-echo "[5/7] Systemd units..."
+echo "[5/8] Systemd units..."
 
 cat > /etc/systemd/system/node-agent.service << EOF
 [Unit]
@@ -404,9 +433,9 @@ else
 fi
 
 # ============================================================
-# [6/7] Health check (через mTLS)
+# [6/8] Health check (через mTLS)
 # ============================================================
-echo "[6/7] Health check..."
+echo "[6/8] Health check..."
 
 # Используем серверный cert как клиентский для self-test (он валиден от того же CA)
 HEALTH=$(curl -sk \
@@ -431,9 +460,78 @@ else
 fi
 
 # ============================================================
-# [7/7] Сохранение credentials
+# [7/8] frpc tunnel (если переданы --frps-* флаги)
 # ============================================================
-echo "[7/7] Сохранение credentials..."
+if [ "$SETUP_FRPC" = true ]; then
+    echo "[7/8] Установка frpc (TCP-туннель node-agent → primary:${FRPS_REMOTE_PORT})..."
+
+    # frpc binary
+    if [ ! -f /usr/local/bin/frpc ] || [ "$FORCE_MODE" = true ]; then
+        ARCH=$(uname -m)
+        case $ARCH in x86_64) FA=amd64 ;; aarch64) FA=arm64 ;; *) echo "  [ОШИБКА] неподдерживаемая арх: $ARCH"; exit 1 ;; esac
+        TMP=$(mktemp -d)
+        curl -fsSL -o "$TMP/frp.tgz" "https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_${FA}.tar.gz"
+        tar xzf "$TMP/frp.tgz" -C "$TMP"
+        cp "$TMP/frp_${FRP_VERSION}_linux_${FA}/frpc" /usr/local/bin/frpc
+        chmod +x /usr/local/bin/frpc
+        rm -rf "$TMP"
+        echo "  [OK] frpc v${FRP_VERSION}"
+    fi
+
+    # Config
+    mkdir -p /etc/frp
+    cat > /etc/frp/frpc.toml << FRPCCFG
+serverAddr = "${FRPS_SERVER}"
+serverPort = ${FRPS_CONTROL_PORT}
+auth.method = "token"
+auth.token = "${FRPS_TOKEN}"
+loginFailExit = false
+dnsServer = "1.1.1.1"
+
+[[proxies]]
+name = "node-agent-${SERVER_NAME}"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = ${NODE_AGENT_PORT}
+remotePort = ${FRPS_REMOTE_PORT}
+FRPCCFG
+    chmod 600 /etc/frp/frpc.toml
+
+    # Systemd
+    cat > /etc/systemd/system/frpc.service << 'FRPCUNIT'
+[Unit]
+Description=frp client (node-agent tunnel)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/frpc -c /etc/frp/frpc.toml
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+FRPCUNIT
+    systemctl daemon-reload
+    systemctl enable frpc
+    systemctl restart frpc
+    sleep 2
+    if systemctl is-active --quiet frpc; then
+        echo "  [OK] frpc активен, туннель ${NODE_AGENT_PORT} → ${FRPS_SERVER}:${FRPS_REMOTE_PORT}"
+    else
+        echo "  [Предупреждение] frpc не запустился"
+        journalctl -u frpc -n 10 --no-pager 2>&1 | tail -5
+    fi
+else
+    echo "[7/8] Пропуск frpc (не переданы --frps-* флаги — secondary должен быть доступен напрямую)"
+fi
+
+# ============================================================
+# [8/8] Сохранение credentials
+# ============================================================
+echo "[8/8] Сохранение credentials..."
 
 CRED_DIR="/root/.borisovai-credentials"
 mkdir -p "$CRED_DIR"

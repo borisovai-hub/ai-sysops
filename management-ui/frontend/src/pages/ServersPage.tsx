@@ -48,19 +48,20 @@ function BootstrapTokenDialog({ data, onClose }: { data: CreateServerResponse; o
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
           <AlertTriangle className="h-5 w-5 text-amber-500" />
-          Bootstrap-токен — показывается ОДИН раз
+          Установка {data.server.name} — токен показывается ОДИН раз
         </DialogTitle>
       </DialogHeader>
       <div className="space-y-4 mt-4">
         <div className="text-sm text-muted-foreground">
-          Сохраните команду для запуска install-node-agent.sh на новом сервере {data.server.name}.
-          Токен действителен 1 час и используется однократно.
+          Запустите команду на новом сервере под root. Скрипт скачается с админки,
+          установит frpc-туннель и node-agent, получит mTLS-cert от step-ca.
+          Токен действителен 1 час.
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Команда установки
+              Команда (запустить на новом сервере)
             </label>
             <Button size="sm" variant="ghost" onClick={() => copyToClipboard(data.bootstrap_command, 'Команда')}>
               <ClipboardCopy className="h-3 w-3" />
@@ -69,18 +70,32 @@ function BootstrapTokenDialog({ data, onClose }: { data: CreateServerResponse; o
           <pre className="bg-muted text-xs p-3 rounded-md overflow-x-auto whitespace-pre-wrap break-all">
             {data.bootstrap_command}
           </pre>
+          <div className="text-xs text-muted-foreground mt-2">
+            ssh root@{data.server.ssh_host} '{data.bootstrap_command}'
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <div className="text-xs text-muted-foreground">CA URL</div>
-            <code className="text-xs">{data.ca_url}</code>
+        <details className="text-sm">
+          <summary className="cursor-pointer text-muted-foreground">Детали (CA URL, fingerprint, frps port)</summary>
+          <div className="mt-2 grid grid-cols-2 gap-3 text-xs">
+            <div>
+              <div className="text-muted-foreground">CA URL</div>
+              <code>{data.ca_url}</code>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Root fingerprint</div>
+              <code className="break-all">{data.ca_root_fingerprint}</code>
+            </div>
+            <div>
+              <div className="text-muted-foreground">frps remote_port</div>
+              <code>{data.server.frps_remote_port ?? '—'}</code>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Agent URL</div>
+              <code className="break-all">{data.server.agent_url}</code>
+            </div>
           </div>
-          <div>
-            <div className="text-xs text-muted-foreground">Root fingerprint</div>
-            <code className="text-xs break-all">{data.ca_root_fingerprint}</code>
-          </div>
-        </div>
+        </details>
 
         <Button onClick={onClose} className="w-full">Я скопировал, закрыть</Button>
       </div>
@@ -100,15 +115,13 @@ function AddServerDialog({ onCreated }: { onCreated: (resp: CreateServerResponse
       toast.error('Заполните name и ssh_host');
       return;
     }
-    const baseAgentSan = `agent-${name}.internal`;
-    const agentUrl = `https://agent.${name}.tunnel.borisovai.ru`;
     create.mutate(
+      // agent_url + agent_san генерируются backend'ом: frps_remote_port
+      // аллоцируется из allowPorts, agent_url=https://<primary-ip>:<port>
       {
         name,
         role: 'secondary',
         ssh_host: sshHost,
-        agent_url: agentUrl,
-        agent_san: baseAgentSan,
       },
       {
         onSuccess: (resp) => {

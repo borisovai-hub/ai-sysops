@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import {
   AppError,
   ConflictError,
@@ -8,6 +9,8 @@ import {
   PATHS,
 } from '@management-ui/shared';
 import type { ServerRecord, CreateServerRequest, UpdateServerRequest } from '@management-ui/shared';
+
+const PRIMARY_PUBLIC_IP = process.env.PRIMARY_PUBLIC_IP || '144.91.108.139';
 
 const SERVERS_FILE = PATHS.SERVERS_FILE;
 const NAME_RE = /^[a-z][a-z0-9-]{0,63}$/;
@@ -56,11 +59,13 @@ export function getEnabledServers(): ServerRecord[] {
   return readFile().filter((s) => s.enabled);
 }
 
-export function createServer(req: CreateServerRequest): ServerRecord {
+export interface CreateServerOptions {
+  allocatePort?: () => number;  // injected from frps.service для secondary
+}
+
+export function createServer(req: CreateServerRequest, opts: CreateServerOptions = {}): ServerRecord {
   validateName(req.name);
   if (!req.ssh_host) throw new ValidationError('ssh_host обязателен');
-  if (!req.agent_url) throw new ValidationError('agent_url обязателен');
-  if (!req.agent_san) throw new ValidationError('agent_san обязателен');
   if (req.role !== 'primary' && req.role !== 'secondary') {
     throw new ValidationError('role должен быть primary или secondary');
   }
@@ -69,9 +74,26 @@ export function createServer(req: CreateServerRequest): ServerRecord {
   if (list.some((s) => s.name === req.name)) {
     throw new ConflictError(`Сервер уже существует: ${req.name}`);
   }
-  // Только один primary
   if (req.role === 'primary' && list.some((s) => s.role === 'primary')) {
     throw new ConflictError('Уже есть primary-сервер');
+  }
+
+  const agentSan = req.agent_san || `agent-${req.name}.internal`;
+
+  let frpsPort: number | undefined;
+  let agentUrl = req.agent_url || '';
+  if (req.role === 'secondary' && !agentUrl) {
+    if (!opts.allocatePort) {
+      throw new AppError('Не предоставлен allocatePort для secondary-сервера', 500);
+    }
+    frpsPort = opts.allocatePort();
+    agentUrl = `https://${PRIMARY_PUBLIC_IP}:${frpsPort}`;
+  } else if (req.role === 'primary' && !agentUrl) {
+    agentUrl = 'https://127.0.0.1:7180';
+  }
+
+  if (!agentUrl) {
+    throw new ValidationError('agent_url не определён и не удалось сгенерировать');
   }
 
   const now = new Date().toISOString();
@@ -79,10 +101,11 @@ export function createServer(req: CreateServerRequest): ServerRecord {
     name: req.name,
     role: req.role,
     ssh_host: req.ssh_host,
-    agent_url: req.agent_url,
-    agent_san: req.agent_san,
+    agent_url: agentUrl,
+    agent_san: agentSan,
     base_domains: req.base_domains ?? [],
     config_dir: req.config_dir || `servers/${req.name}`,
+    frps_remote_port: frpsPort,
     enabled: true,
     tags: req.tags ?? [],
     created_at: now,
@@ -91,6 +114,14 @@ export function createServer(req: CreateServerRequest): ServerRecord {
 
   writeFile([...list, record]);
   return record;
+}
+
+/**
+ * Случайный install_token, который зашиваем в /api/servers/install запрос.
+ * Записывается как короткоживущая запись в auth_tokens (TTL ~1h).
+ */
+export function generateInstallToken(): string {
+  return randomBytes(32).toString('hex');
 }
 
 export function updateServer(name: string, req: UpdateServerRequest): ServerRecord {
