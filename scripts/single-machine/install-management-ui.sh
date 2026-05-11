@@ -134,6 +134,10 @@ if [ -n "$MANAGEMENT_UI_FOUND" ]; then
         adduser --system --no-create-home --group management-ui 2>/dev/null || true
         echo "  [OK] Создан пользователь management-ui"
     fi
+    # journalctl нужен для /api/logs/* — без членства в systemd-journal
+    # process видит только свои логи. Дополняем SupplementaryGroups в unit'е
+    # на случай старых установок без этой строки.
+    usermod -aG systemd-journal management-ui 2>/dev/null || true
     chown -R management-ui:management-ui "$APP_DIR"
     # Конфиги читаемы для management-ui, но принадлежат root
     chown root:management-ui /etc/management-ui/ 2>/dev/null || true

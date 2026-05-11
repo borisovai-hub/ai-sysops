@@ -499,6 +499,40 @@ if id management-ui &>/dev/null && [ -d /etc/management-ui ]; then
     else
         echo "  [Пропуск] admin client cert уже существует"
     fi
+
+    # Systemd timer для auto-renew admin client cert (lifetime 24h)
+    # Без этого management-ui после 24h не сможет ходить в node-agent (ECONNRESET)
+    if [ ! -f /etc/systemd/system/admin-cert-renew.timer ] || [ "$FORCE_MODE" = true ]; then
+        cat > /etc/systemd/system/admin-cert-renew.service << EOF
+[Unit]
+Description=Renew management-ui admin client cert from step-ca
+After=network.target step-ca.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/step ca renew --force --ca-url https://127.0.0.1:${STEP_CA_PORT} --root ${STEPPATH}/certs/root_ca.crt ${ADMIN_CERT_DIR}/admin.crt ${ADMIN_CERT_DIR}/admin.key
+ExecStartPost=/bin/chown management-ui:management-ui ${ADMIN_CERT_DIR}/admin.crt ${ADMIN_CERT_DIR}/admin.key
+ExecStartPost=/bin/chmod 644 ${ADMIN_CERT_DIR}/admin.crt
+ExecStartPost=/bin/chmod 640 ${ADMIN_CERT_DIR}/admin.key
+ExecStartPost=/bin/systemctl restart management-ui.service
+EOF
+        cat > /etc/systemd/system/admin-cert-renew.timer << 'EOF'
+[Unit]
+Description=Periodic admin client cert renewal (lifetime 24h, renew every 6h)
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=6h
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+        systemctl daemon-reload
+        systemctl enable --now admin-cert-renew.timer 2>&1 | tail -1
+        echo "  [OK] admin-cert-renew.timer enabled (каждые 6h)"
+    fi
 fi
 
 echo ""
