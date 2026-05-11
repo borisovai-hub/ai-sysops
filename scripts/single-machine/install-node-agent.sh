@@ -72,14 +72,15 @@ if [ -z "$SERVER_NAME" ]; then
     [ -z "$SERVER_NAME" ] && SERVER_NAME="$HN"
 fi
 
+PRIMARY_IP_DEFAULT="144.91.108.139"
+
 # Auto-detect CA URL
 if [ -z "$CA_URL" ]; then
     if [ "$LOCAL_BOOTSTRAP" = true ] || [ -f /etc/step-ca/config/ca.json ]; then
         CA_URL="https://127.0.0.1:9000"
     else
-        FIRST_BASE=$(get_base_domains 2>/dev/null | head -1)
-        [ -z "$FIRST_BASE" ] && FIRST_BASE="borisovai.ru"
-        CA_URL="https://ca.tunnel.${FIRST_BASE}"
+        # IP-based — без DNS/proxy зависимостей. step-ca слушает на primary:9000
+        CA_URL="https://${STEP_CA_PRIMARY_IP:-$PRIMARY_IP_DEFAULT}:9000"
     fi
 fi
 
@@ -122,23 +123,8 @@ if [ "$NODE_OK" != true ]; then
     apt-get install -y nodejs 2>&1 | tail -3
 fi
 
-# /etc/hosts entry для CA URL: ca.tunnel.borisovai.ru на secondary не
-# в публичном DNS, без записи step ca bootstrap не сработает.
-# Идемпотентно: если запись уже есть, не дублируем.
-if [ -n "$CA_URL" ] && [[ "$CA_URL" =~ https?://([^:/]+) ]]; then
-    CA_HOST="${BASH_REMATCH[1]}"
-    if [[ "$CA_HOST" != "127.0.0.1" ]] && [[ "$CA_HOST" != "localhost" ]] && ! grep -q "^[^#]*[[:space:]]${CA_HOST}\b" /etc/hosts; then
-        # Получаем IP primary через DNS public lookup или используем дефолт
-        PRIMARY_IP=$(getent ahostsv4 "${CA_HOST}" 2>/dev/null | awk 'NR==1{print $1}')
-        if [ -z "$PRIMARY_IP" ]; then
-            PRIMARY_IP="144.91.108.139"  # дефолт для borisovai.ru
-        fi
-        echo "${PRIMARY_IP} ${CA_HOST}" >> /etc/hosts
-        echo "  [OK] Добавлено в /etc/hosts: ${PRIMARY_IP} ${CA_HOST}"
-    fi
-fi
-
 # step CLI — нужен для bootstrap и cert renewal
+# (CA_URL по умолчанию использует прямой IP primary — без DNS-зависимости)
 if ! command -v step &>/dev/null; then
     echo "  Установка step CLI..."
     STEP_VERSION="0.28.2"
@@ -375,7 +361,11 @@ After=network.target
 [Service]
 Type=oneshot
 Environment=STEPPATH=/etc/node-agent/step
-ExecStart=/usr/local/bin/step ca renew --force ${CERT_DIR}/agent.crt ${CERT_DIR}/agent.key
+# CA по прямому IP, end-to-end mTLS со step-ca, server cert верифицируется
+# через STEPPATH/certs/root_ca.crt (внутренний trust установлен при bootstrap)
+ExecStart=/usr/local/bin/step ca renew --force \\
+    --ca-url ${CA_URL} \\
+    ${CERT_DIR}/agent.crt ${CERT_DIR}/agent.key
 ExecStartPost=/bin/systemctl restart node-agent.service
 EOF
 

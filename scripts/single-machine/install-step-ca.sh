@@ -131,6 +131,12 @@ STEP_CA_PREFIX=$(get_config_value "step_ca_prefix")
 [ -z "$STEP_CA_PREFIX" ] && STEP_CA_PREFIX="ca.tunnel"
 save_config_value "step_ca_prefix" "$STEP_CA_PREFIX"
 
+# Listen address: public IP чтобы secondary серверы могли подключаться напрямую
+# (без DNS/proxy зависимостей). mTLS защищает API.
+STEP_CA_LISTEN=$(get_config_value "step_ca_listen")
+[ -z "$STEP_CA_LISTEN" ] && STEP_CA_LISTEN="0.0.0.0"
+save_config_value "step_ca_listen" "$STEP_CA_LISTEN"
+
 # CA name
 STEP_CA_NAME=$(get_config_value "step_ca_name")
 [ -z "$STEP_CA_NAME" ] && STEP_CA_NAME="borisovai-internal"
@@ -141,8 +147,15 @@ STEP_CA_DEFAULT_DUR=$(get_config_value "step_ca_default_dur")
 [ -z "$STEP_CA_DEFAULT_DUR" ] && STEP_CA_DEFAULT_DUR="24h"
 save_config_value "step_ca_default_dur" "$STEP_CA_DEFAULT_DUR"
 
-# Сбор всех DNS-имён CA из base_domains
+# Определяем public IPv4 — нужен в SAN для прямого IP-доступа от secondary
+PUBLIC_IP=$(curl -s4 ifconfig.me 2>/dev/null || curl -s4 ifconfig.co 2>/dev/null || ip -4 route get 1 2>/dev/null | awk '{print $7; exit}')
+
+# Сбор всех SAN-имён CA: IPs + опционально DNS (хранятся для backward-compat,
+# реальное подключение идёт по public IP)
 CA_DNS_NAMES="127.0.0.1,localhost"
+if [ -n "$PUBLIC_IP" ]; then
+    CA_DNS_NAMES="${CA_DNS_NAMES},${PUBLIC_IP}"
+fi
 while IFS= read -r base; do
     [ -z "$base" ] && continue
     CA_DNS_NAMES="${CA_DNS_NAMES},${STEP_CA_PREFIX}.${base}"
@@ -154,7 +167,7 @@ if [ -z "$FIRST_BASE" ]; then
     echo "  [ОШИБКА] Базовые домены не настроены (base_domains пуст)"
     exit 1
 fi
-CA_PRIMARY_DNS="${STEP_CA_PREFIX}.${FIRST_BASE}"
+CA_PRIMARY_DNS="${STEP_CA_PREFIX}.${FIRST_BASE}"  # legacy, оставлено для cert SAN (backward-compat)
 
 echo "  Listen:        127.0.0.1:${STEP_CA_PORT}"
 echo "  CA name:       ${STEP_CA_NAME}"
@@ -197,7 +210,7 @@ if [ ! -f "${STEPPATH}/config/ca.json" ]; then
     /usr/local/bin/step ca init \
         --name="$STEP_CA_NAME" \
         --dns="$CA_DNS_NAMES" \
-        --address="127.0.0.1:${STEP_CA_PORT}" \
+        --address="${STEP_CA_LISTEN}:${STEP_CA_PORT}" \
         --provisioner="admin-bootstrap" \
         --password-file="${SECRETS_DIR}/password" \
         --provisioner-password-file="${SECRETS_DIR}/provisioner-password" \
@@ -380,25 +393,21 @@ else
 fi
 
 # ============================================================
-# [6/8] DNS запись для ca.tunnel.<base_domain>
+# [6/8] Firewall: открыть step-ca:9000 для secondary серверов
 # ============================================================
-echo "[6/8] Создание DNS записей..."
+echo "[6/8] Firewall..."
 
-# IPv4 only — ifconfig.me на dual-stack хостах возвращает AAAA, что ломает DNS A-записи
-SERVER_IP=$(curl -s4 ifconfig.me 2>/dev/null || curl -s4 ifconfig.co 2>/dev/null || ip -4 route get 1 2>/dev/null | awk '{print $7; exit}')
-if [ -z "$SERVER_IP" ]; then
-    echo "  [Предупреждение] Не удалось определить IP"
-    echo "  Создайте вручную: ${STEP_CA_PREFIX}.<base_domain> → A → <ip>"
+# Public access на step-ca:9000 — secondary подключаются напрямую по IP,
+# mTLS защищает API (issuance требует валидный JWK-токен или client cert).
+if command -v ufw &>/dev/null; then
+    ufw allow "${STEP_CA_PORT}/tcp" comment "step-ca public API (mTLS)" 2>&1 | tail -2
 else
-    DNS_API="http://127.0.0.1:5353/api/records"
-    while IFS= read -r base; do
-        [ -z "$base" ] && continue
-        curl -s -X POST -H "Content-Type: application/json" \
-            -d "{\"subdomain\":\"${STEP_CA_PREFIX}\",\"domain\":\"${base}\",\"ip\":\"${SERVER_IP}\"}" \
-            "$DNS_API" 2>/dev/null
-        echo "  [OK] ${STEP_CA_PREFIX}.${base} → ${SERVER_IP}"
-    done < <(get_base_domains)
+    echo "  [Пропуск] ufw не установлен — откройте ${STEP_CA_PORT}/tcp вручную"
 fi
+
+# (DNS-записи ca.tunnel.<base_domain> больше не создаём — secondary
+# использует прямой public IP для подключения к step-ca. SANs с DNS-именами
+# оставлены в cert как backward-compat.)
 
 # ============================================================
 # [7/8] Backup-cron для step-ca DB
@@ -442,7 +451,7 @@ ROOT_FP=$(/usr/local/bin/step certificate fingerprint "${STEPPATH}/certs/root_ca
 cat > "$CRED_DIR/step-ca" << CRED_EOF
 # step-ca credentials ($(date '+%Y-%m-%d %H:%M:%S'))
 ca_url=https://127.0.0.1:${STEP_CA_PORT}
-ca_url_external=https://${CA_PRIMARY_DNS}
+ca_url_external=https://${PUBLIC_IP:-<primary-ip>}:${STEP_CA_PORT}
 ca_name=${STEP_CA_NAME}
 default_cert_lifetime=${STEP_CA_DEFAULT_DUR}
 root_fingerprint=${ROOT_FP}
@@ -451,10 +460,9 @@ root_fingerprint=${ROOT_FP}
 ca_password_file=/etc/step-ca/secrets/password
 provisioner_password_file=/etc/step-ca/secrets/provisioner-password
 
-# Бутстрап нового агента:
-#   step ca bootstrap --ca-url=https://${CA_PRIMARY_DNS} --fingerprint=${ROOT_FP}
-#   step ca token <agent-san>  # выдать токен из admin-bootstrap provisioner
-#   step ca certificate <agent-san> agent.crt agent.key --token=<token>
+# Бутстрап нового агента (с secondary):
+#   step ca bootstrap --ca-url=https://${PUBLIC_IP:-<primary-ip>}:${STEP_CA_PORT} --fingerprint=${ROOT_FP}
+#   step ca certificate <agent-san> agent.crt agent.key --token=<JWK_from_admin_UI>
 CRED_EOF
 chmod 600 "$CRED_DIR/step-ca"
 
@@ -498,7 +506,7 @@ echo "=== Установка step-ca завершена ==="
 echo ""
 echo "  CA:                ${STEP_CA_NAME}"
 echo "  Internal URL:      https://127.0.0.1:${STEP_CA_PORT}"
-echo "  External URL:      https://${CA_PRIMARY_DNS} (через Traefik passthrough)"
+echo "  Public URL:        https://${PUBLIC_IP:-<primary-ip>}:${STEP_CA_PORT} (для secondary)"
 echo "  Root fingerprint:  ${ROOT_FP}"
 echo "  Cert lifetime:     ${STEP_CA_DEFAULT_DUR} (max 24h, renewal 8h)"
 echo ""

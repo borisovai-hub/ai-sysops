@@ -37,7 +37,11 @@ export function getIntermediatePem(): string {
 }
 
 export function getCaUrlExternal(): string {
-  return process.env.STEP_CA_URL_EXTERNAL || 'https://ca.tunnel.borisovai.ru';
+  // Public URL для secondary серверов. Используем прямой IP — secondary
+  // подключается к step-ca:9000 на primary без DNS/proxy. mTLS-renewal
+  // требует end-to-end TLS без терминации, а HTTPS-прокси (Caddy/Traefik
+  // termination) ломает client-cert forwarding.
+  return process.env.STEP_CA_URL_EXTERNAL || 'https://144.91.108.139:9000';
 }
 
 /**
