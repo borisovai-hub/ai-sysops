@@ -33,11 +33,14 @@ const SOURCES: LogSource[] = [
   { id: 'umami', label: 'Umami Analytics', type: 'docker', target: 'umami', group: 'services' },
   { id: 'vikunja', label: 'Vikunja Tasks', type: 'docker', target: 'vikunja', group: 'services' },
 
-  // --- Mail ---
-  { id: 'mailu-admin', label: 'Mailu admin', type: 'docker', target: 'mailu-admin', group: 'mail' },
-  { id: 'mailu-front', label: 'Mailu front', type: 'docker', target: 'mailu-front', group: 'mail' },
-  { id: 'mailu-imap', label: 'Mailu imap', type: 'docker', target: 'mailu-imap', group: 'mail' },
-  { id: 'mailu-smtp', label: 'Mailu smtp', type: 'docker', target: 'mailu-smtp', group: 'mail' },
+  // --- Mail (docker-compose v2 имена с суффиксом -1) ---
+  { id: 'mailu-admin', label: 'Mailu admin', type: 'docker', target: 'mailu-admin-1', group: 'mail' },
+  { id: 'mailu-front', label: 'Mailu front', type: 'docker', target: 'mailu-front-1', group: 'mail' },
+  { id: 'mailu-imap', label: 'Mailu imap', type: 'docker', target: 'mailu-imap-1', group: 'mail' },
+  { id: 'mailu-smtp', label: 'Mailu smtp', type: 'docker', target: 'mailu-smtp-1', group: 'mail' },
+  { id: 'mailu-webmail', label: 'Mailu webmail', type: 'docker', target: 'mailu-webmail-1', group: 'mail' },
+  { id: 'mailu-antispam', label: 'Mailu antispam', type: 'docker', target: 'mailu-antispam-1', group: 'mail' },
+  { id: 'mailu-redis', label: 'Mailu redis', type: 'docker', target: 'mailu-redis-1', group: 'mail' },
 
   // --- Mgmt UI runners ---
   { id: 'gitlab-runner', label: 'GitLab Runner (prod)', type: 'systemd', target: 'gitlab-runner', group: 'ci' },
