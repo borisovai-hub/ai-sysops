@@ -216,14 +216,14 @@ if [ "$FORCE_MODE" = true ] || [ ! -f "$SYSTEMD_UNIT" ]; then
 [Unit]
 Description=frp server (туннелирование)
 After=network.target traefik.service
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/frps -c /etc/frp/frps.toml
 Restart=always
 RestartSec=5
-StartLimitBurst=5
-StartLimitIntervalSec=60
 LimitNOFILE=1048576
 NoNewPrivileges=true
 ProtectSystem=strict

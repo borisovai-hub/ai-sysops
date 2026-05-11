@@ -389,6 +389,8 @@ if [ "$FORCE_MODE" = true ] || [ ! -f "/etc/systemd/system/management-ui.service
 [Unit]
 Description=Management UI
 After=network.target traefik.service
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 Type=simple
@@ -398,8 +400,6 @@ WorkingDirectory=$APP_DIR
 ExecStart=/usr/bin/node backend/dist/index.js
 Restart=always
 RestartSec=5
-StartLimitBurst=5
-StartLimitIntervalSec=60
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=SERVER_NAME=contabo-sm-139
